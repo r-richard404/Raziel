@@ -1,6 +1,5 @@
 package com.example.raziel.core.encryption.algorithms;
 
-import android.provider.Settings;
 import android.util.Log;
 import java.io.*;
 import java.security.SecureRandom;
@@ -8,19 +7,19 @@ import javax.crypto.*;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-// AES-256-GCM implementation
-// Mathematical Foundation:
-// - Advanced Encryption Standard with 256-bit keys
-// - Key size: 256 bits (32 bytes) - provides 2^128 security level
-// - Block size: 128 bits
-// - IV size: 12 bytes (96 bits) - recommended for GCM
-// - Authentication tag: 128 bits
-
-// CIA Security Properties:
-// - Confidentiality: IND-CPA secure
-// - Integrity: detects unauthorized modifications
-// - Authentication: verifies data origin
-
+/* AES-256-GCM implementation
+ * Mathematical Foundation:
+ * - Advanced Encryption Standard with 256-bit keys
+ * - Key size: 256 bits (32 bytes) - provides 2^128 security level
+ * - Block size: 128 bits
+ * - IV size: 12 bytes (96 bits) - recommended for GCM
+ * - Authentication tag: 128 bits
+ *
+ * CIA Security Properties:
+ * - Confidentiality: IND-CPA secure
+ * - Integrity: detects unauthorized modifications
+ * - Authentication: verifies data origin
+*/
 public class AES_256 implements InterfaceEncryptionAlgorithm {
     private static final String TAG = "AES256";
     private static final String ALGORITHM = "AES";

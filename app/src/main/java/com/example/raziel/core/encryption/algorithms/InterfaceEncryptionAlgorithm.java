@@ -2,13 +2,14 @@ package com.example.raziel.core.encryption.algorithms;
 
 import java.io.File;
 
-// Common interface for all encryption algorithms following SOLID principles
-// Open/Closed principles by easily adding new algorithms without modifying existing code
+/* Common interface for all encryption algorithms following SOLID principles
+ * Open/Closed principles by easily adding new algorithms without modifying existing code
 
-// Mathematical foundation:
-// - All implementations must provide cryptographic proof of security
-// - Key generation must use cryptographically secure random number generators
-// - Must support authenticated encryption for data integrity
+ * Mathematical foundation:
+ * - All implementations must provide cryptographic proof of security
+ * - Key generation must use cryptographically secure random number generators
+ * - Must support authenticated encryption for data integrity
+*/
 
 public interface InterfaceEncryptionAlgorithm {
     // Return the algorithm's display name for UI

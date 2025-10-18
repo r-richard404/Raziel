@@ -2,9 +2,9 @@ package com.example.raziel.core.encryption.models;
 
 import java.io.File;
 
-// Immutable data class that represents the result of encryption/decryption operations
-// Pure data structure without behaviour
-
+/** Immutable data class that represents the result of encryption/decryption operations
+ *   Pure data structure without behaviour
+ */
 
 public class EncryptionResult {
     public enum Operation {ENCRYPT, DECRYPT}
@@ -35,13 +35,12 @@ public class EncryptionResult {
 
     // Factory method for success
     public static EncryptionResult success(File inputFile, File outputFile, String algorithmName,
-                                           Operation operation, String errorMessage, long processingTimeMs, long fileSizeBytes) {
+                                           Operation operation, long processingTimeMs, long fileSizeBytes) {
         return new EncryptionResult(true, inputFile, outputFile, algorithmName, operation, null, processingTimeMs, fileSizeBytes);
     }
 
     // Factory method for failure
-    public static EncryptionResult failure(File inputFile, File outputFile, String algorithmName,
-                                           Operation operation, String errorMessage, long processingTimeMs, long fileSizeBytes) {
+    public static EncryptionResult failure(Operation operation, String errorMessage, File inputFile) {
         return new EncryptionResult(false, inputFile,null, null, operation, errorMessage, 0, 0);
 
     }
