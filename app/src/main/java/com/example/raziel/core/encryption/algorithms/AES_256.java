@@ -22,7 +22,6 @@ import javax.crypto.spec.SecretKeySpec;
 // - Authentication: verifies data origin
 
 public class AES_256 implements InterfaceEncryptionAlgorithm {
-
     private static final String TAG = "AES256";
     private static final String ALGORITHM = "AES";
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
@@ -31,20 +30,24 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
     private static final int TAG_LENGTH = 128; // 16 bytes for authentication tag
     private static final int KEY_LENGTH_BYTES = KEY_SIZE / 8; // 32 bytes
 
+
     @Override
     public String getAlgorithmName() {
         return ALGORITHM;
     }
+
 
     @Override
     public String getSecurityStrength() {
         return "Military Grade";
     }
 
+
     @Override
     public int getKeyLength() {
         return KEY_LENGTH_BYTES;
     }
+
 
     @Override
     public byte[] generateKey() {
@@ -60,6 +63,7 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
         }
     }
 
+
     @Override
     public boolean encryptFile(File inputFile, File outputFile, byte[] key, byte[] additionalData) {
         if (key == null || key.length != KEY_LENGTH_BYTES) {
@@ -71,7 +75,7 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
 
         try {
             inputStream = new FileInputStream(inputFile);
-            outputStream = new OutputStream(outputStream);
+            outputStream = new FileOutputStream(outputFile);
 
             // Generate secure IV
             byte[] iv = new byte[IV_LENGTH];
@@ -124,5 +128,64 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
     }
 
 
+    @Override
+    public boolean decryptFile(File inputFile, File outputFile, byte[] key, byte[] additionalData) {
+        if (key == null || key.length != KEY_LENGTH_BYTES) {
+            Log.e(TAG, "Invalid key length: " + (key == null ? "null" : key.length) + " bytes, expected: " + KEY_LENGTH_BYTES);
+            return false;
+        }
 
+        FileInputStream inputStream = null;
+        FileOutputStream outputStream = null;
+
+        try {
+            inputStream = new FileInputStream(inputFile);
+            outputStream = new FileOutputStream(outputFile);
+
+            // Read IV from beginning of encrypted file
+            byte[] iv = new byte[IV_LENGTH];
+            int bytesRead = inputStream.read(iv);
+            if (bytesRead != IV_LENGTH) {
+                throw new SecurityException("Invalid encrypted file format");
+            }
+
+            // Initialise cipher with same GCM parameters
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+            SecretKey secretKey = new SecretKeySpec(key, ALGORITHM);
+            GCMParameterSpec parameterSpec = new GCMParameterSpec(TAG_LENGTH, iv);
+
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, parameterSpec);
+
+            // Add same Additional Authenticated Data
+            if (additionalData != null) {
+                cipher.updateAAD(additionalData);
+            }
+
+            // Decrypt data in chunks
+            byte[] buffer = new byte[8192]; //8KB
+
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                byte[] decryptedChunk = cipher.update(buffer, 0, bytesRead);
+                if (decryptedChunk != null) {
+                    outputStream.write(decryptedChunk);
+                }
+            }
+
+            // Finalise decryption and verify authentication tag
+            byte[] finalBlock = cipher.doFinal();
+            outputStream.write(finalBlock);
+
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Decryption failed for +" + inputFile.getName(), e);
+            return false;
+        } finally {
+            try {
+                if (inputStream != null) inputStream.close();
+                if (outputStream != null) outputStream.close();
+            } catch (IOException e) {
+                Log.e(TAG, "Error closing streams" , e);
+            }
+        }
+    }
 }
