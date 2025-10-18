@@ -1,19 +1,98 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".MainActivity">
+    android:padding="36dp"
+    android:background="@color/black">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Hello World!"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        android:orientation="vertical">
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <!-- Header -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Raziel - Encryption Test"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="36dp"
+            android:textColor="@color/white" />
+
+
+        <!-- Algorithm Selection -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Select Encryption Algorithm: "
+            android:textSize="18sp"
+            android:layout_marginBottom="9dp"
+            android:textColor="@color/white"/>
+
+        <Spinner
+            android:id="@+id/algorithmSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="36dp"
+            android:background="@color/white"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="3">
+
+            <Button
+                android:id="@+id/btnEncrypt"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="ENCRYPT TEXT FILE"
+                android:textColor="@color/black"
+                android:layout_marginEnd="9dp"
+                android:backgroundTint="@color/white"
+                android:textStyle="bold"/>
+
+            <Button
+                android:id="@+id/btnDecrypt"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Decrypt"
+                android:textColor="@color/black"
+                android:layout_marginEnd="9dp"
+                android:backgroundTint="@color/white"
+                android:textStyle="bold"/>
+
+        </LinearLayout>
+
+        <!-- Progress -->
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:visibility="gone"/>
+
+        <!-- Status -->
+        <TextView
+            android:id="@+id/processStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Ready to test encryption..."
+            android:textSize="18sp"
+            android:layout_marginTop="36dp"
+            android:padding="18dp"
+            android:background="@color/white"
+            android:textColor="@color/black"
+            android:lineSpacingExtra="6dp"/>
+
+
+    </LinearLayout>
+
+</ScrollView>
+
+
+
