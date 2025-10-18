@@ -39,6 +39,7 @@ public class EncryptionResult {
         return new EncryptionResult(true, inputFile, outputFile, algorithmName, operation, null, processingTimeMs, fileSizeBytes);
     }
 
+
     // Factory method for failure
     public static EncryptionResult failure(Operation operation, String errorMessage, File inputFile) {
         return new EncryptionResult(false, inputFile,null, null, operation, errorMessage, 0, 0);
@@ -55,5 +56,4 @@ public class EncryptionResult {
     public String getErrorMessage() {return errorMessage;}
     public long getProcessingTimeMs() {return processingTimeMs;}
     public long getFileSizeBytes() {return fileSizeBytes;}
-
 }

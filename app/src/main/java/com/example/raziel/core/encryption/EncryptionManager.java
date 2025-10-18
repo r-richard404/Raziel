@@ -18,9 +18,11 @@ public class EncryptionManager {
     // TODO: Left list only with 1 algorithm until the others are implemented
     private static final List<InterfaceEncryptionAlgorithm> availableAlgorithms = Arrays.asList(new AES_256());
 
+
     public static List<InterfaceEncryptionAlgorithm> getAvailableAlgorithms() {
         return availableAlgorithms;
     }
+
 
     // Encrypting a file using the specified algorithm chosen
     public EncryptionResult encryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, String outputFileName) {
@@ -60,6 +62,7 @@ public class EncryptionManager {
         }
     }
 
+
     // Decrypting file using the specified algorithm
     public EncryptionResult decryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, String outputFileName) {
         long startTime = System.currentTimeMillis();
@@ -93,6 +96,7 @@ public class EncryptionManager {
             return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Decryption error: " + e.getMessage(), inputFile);
         }
     }
+
 
     // Find algorithm by name
     public static InterfaceEncryptionAlgorithm getAlgorithmByName(String name) {

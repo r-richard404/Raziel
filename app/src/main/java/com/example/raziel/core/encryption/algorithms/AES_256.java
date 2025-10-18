@@ -52,7 +52,7 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
     public byte[] generateKey() {
         try {
             // Use cryptographically secure random number generator
-            KeyGenerator keyGenerator = keyGenerator.getInstance(ALGORITHM);
+            KeyGenerator keyGenerator = KeyGenerator.getInstance(ALGORITHM);
             keyGenerator.init(KEY_SIZE, new SecureRandom());
             SecretKey secretKey = keyGenerator.generateKey();
             return secretKey.getEncoded();

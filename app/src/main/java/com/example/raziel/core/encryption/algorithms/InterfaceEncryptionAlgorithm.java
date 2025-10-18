@@ -29,5 +29,4 @@ public interface InterfaceEncryptionAlgorithm {
 
     // Get the required key length in bytes
     int getKeyLength();
-
 }
