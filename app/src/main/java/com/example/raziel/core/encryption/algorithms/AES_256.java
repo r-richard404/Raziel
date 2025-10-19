@@ -29,7 +29,7 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
     private static final int TAG_LENGTH = 128; // 16 bytes for authentication tag
     private static final int KEY_LENGTH_BYTES = KEY_SIZE / 8; // 32 bytes
 
-
+    
     @Override
     public String getAlgorithmName() {
         return ALGORITHM;
