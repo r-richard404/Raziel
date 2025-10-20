@@ -38,9 +38,14 @@ public class InternalFileManager implements FileManager {
 
 
     @Override
-    public boolean deleteFile(String filePath) {
+    public boolean deleteFile(String filePath) throws IOException {
         File file = new File(context.getFilesDir(), filePath);
-        return file.delete();
+        if(file.exists()) {
+            return file.delete();
+        } else {
+            throw new IOException("File does not exist and cannot be deleted");
+        }
+
     }
 
 
