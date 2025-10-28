@@ -15,6 +15,7 @@ import com.example.raziel.core.encryption.models.EncryptionResult;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 
 // Test Encryption Foundation
 
@@ -68,10 +69,13 @@ public class MainActivity extends AppCompatActivity {
     private void createTestFile() {
         try {
             testFile = new File(getFilesDir(), "test_file.txt");
-            FileOutputStream fos = new FileOutputStream(testFile);
-            fos.write("This is a test file for Raziel encryption".getBytes());
-            fos.close();
-            updateStatus("Test file created: " + testFile.getAbsolutePath());
+            try(RandomAccessFile raf = new RandomAccessFile(testFile, "rw")){
+                raf.setLength(1024 * 1024 * 50);
+            }
+            FileOutputStream fosSmall = new FileOutputStream(testFile);
+            fosSmall.write("This is a small test file for Raziel encryption".getBytes());
+            fosSmall.close();
+            updateStatus("Test file created: " + testFile.getAbsolutePath() + "\n Test file size: " + testFile.length());
         } catch (IOException e) {
             updateStatus("Error creating test file: " + e.getMessage());
         }
