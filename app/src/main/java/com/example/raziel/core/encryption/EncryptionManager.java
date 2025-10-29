@@ -26,7 +26,10 @@ public class EncryptionManager {
 
     // Currently using only AES-256
     // TODO: add ChaCha20-Poly1305 for devices without AES-NI
-    private static final List<InterfaceEncryptionAlgorithm> availableAlgorithms;
+    private final List<InterfaceEncryptionAlgorithm> availableAlgorithms;
+
+    // TODO: temporary key before implementing key management system
+    private byte[] lastEncryptionKey = null;
 
     /**
      * Constructor initialises encryption manager with device context
@@ -46,14 +49,14 @@ public class EncryptionManager {
 
         this.availableAlgorithms = Arrays.asList(new AES_256(context));
     }
+
+
     /**
      * Get list of available encryption algorithms for UI display
      *
      * @return List of algorithm implementations
      */
-
-
-    public static List<InterfaceEncryptionAlgorithm> getAvailableAlgorithms() {
+    public List<InterfaceEncryptionAlgorithm> getAvailableAlgorithms() {
         return availableAlgorithms;
     }
 
@@ -91,6 +94,11 @@ public class EncryptionManager {
                 return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Failed to generate encryption key", inputFile);
             }
 
+            // Store the key for decryption to use
+            // TODO: remove this and replace it with key management access
+            lastEncryptionKey = Arrays.copyOf(key, key.length);
+
+
             // Perform encryption
             boolean success = algorithm.encryptFile(inputFile, outputFile, key, null);
             long endTime = System.nanoTime();
@@ -100,14 +108,15 @@ public class EncryptionManager {
                 // Zero out the key from memory immediately after use to ensure security
                 // This prevents key leakage through memory dumps or swap
                 Arrays.fill(key, (byte) 0);
-
-                return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.ENCRYPT, endTime - startTime, inputFile.length());
+                return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.ENCRYPT, elapsedMS, inputFile.length());
             } else {
                 // Zero out key in case of failure
                 Arrays.fill(key, (byte) 0);
+                lastEncryptionKey = null; // Clear stored key on failure
                 return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Encryption process failed", inputFile);
             }
         } catch (Exception e) {
+            lastEncryptionKey = null; // Clear stored key on exception
             return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Encryption error: " + e.getMessage(), inputFile);
         }
     }
@@ -146,7 +155,15 @@ public class EncryptionManager {
             // TODO: retrieve key from secure storage not generated for testing purposes
             // Key is generated instead of retrieved to debug the process properly
 
-            byte[] key = algorithm.generateKey();
+
+            if (lastEncryptionKey == null) {
+                return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "No encryption key available. You must encrypt a file" +
+                        "first before decrypting it. This is a limitation until keys are retrieved from secure storage.", inputFile);
+            }
+
+            // Use the stored key
+            byte[] key = lastEncryptionKey;
+
 
             // Generate output file path
             String originalName = inputFile.getName().replace(".encrypted", "");
@@ -154,8 +171,8 @@ public class EncryptionManager {
 
             // Perform decryption
             boolean success = algorithm.decryptFile(inputFile, outputFile, key, null);
-            long endTime = System.nanoTime());
-            long elapsedMS = (startTime - endTime) / 1_000_000;
+            long endTime = System.nanoTime();
+            long elapsedMS = (endTime - startTime) / 1_000_000;
 
             // Security practice to zero out keys after use
             if (key != null) {
@@ -163,7 +180,7 @@ public class EncryptionManager {
             }
 
             if (success) {
-                return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.DECRYPT, startTime - endTime, inputFile.length());
+                return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.DECRYPT, elapsedMS, inputFile.length());
             } else {
                 return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Decryption process failed - possibly wrong key or corrupted file", inputFile);
             }
@@ -179,7 +196,7 @@ public class EncryptionManager {
      * @param name Algorithm name (e.g. AES)
      * @return  Algorithm implementation or null if not found
      */
-    public static InterfaceEncryptionAlgorithm getAlgorithmByName(String name) {
+    public InterfaceEncryptionAlgorithm getAlgorithmByName(String name) {
         for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
             if (algorithm.getAlgorithmName().equals(name)) {
                 return algorithm;
