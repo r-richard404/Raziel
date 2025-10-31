@@ -59,7 +59,7 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
     // Cipher pool for reuse (same ThreadLocal pattern as AES)
     private static final ThreadLocal<Cipher> cipherPool = ThreadLocal.withInitial(() -> {
         try {
-            return. Cipher.getInstance(TRANSFORMATION);
+            return Cipher.getInstance(TRANSFORMATION);
         } catch (Exception e) {
             Log.e(TAG, "Failed to create cipher instance for pool", e);
             return null;
@@ -99,11 +99,11 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
                 int memoryClass = am.getMemoryClass();
 
                 if (memoryClass >= 256) {
-                    return 8 * 1024 * 1024 // 8MB for high-end devices
+                    return 8 * 1024 * 1024; // 8MB for high-end devices
                 } else if (memoryClass >= 128) {
-                    return 4 * 1024 * 1024 // 4MB for mid range devices
+                    return 4 * 1024 * 1024; // 4MB for mid range devices
                 } else {
-                    return 2 * 1024 * 1024 // 2MB for low-end devices
+                    return 2 * 1024 * 1024; // 2MB for low-end devices
                 }
             }
         } catch (Exception e) {
