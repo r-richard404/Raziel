@@ -143,7 +143,7 @@ public class EncryptionBenchmark {
 
         List<BenchmarkResult> results = new ArrayList<>();
 
-        for (int fileeSize : TEST_FILE_SIZES_MB) {
+        for (int fileSizeMB : TEST_FILE_SIZES_MB) {
             Log.d(TAG, "Benchmarking " + fileSizeMB + "MB file...");
 
             try {
@@ -174,7 +174,7 @@ public class EncryptionBenchmark {
 
                     // High-resolution timing
                     long startNano = System.nanoTime();
-                    boolean success = algorithm.encryptFile(testFile, outputFile, key, nul);
+                    boolean success = algorithm.encryptFile(testFile, outputFile, key, null);
                     long endNano = System.nanoTime();
 
                     if (success) {
@@ -192,7 +192,7 @@ public class EncryptionBenchmark {
                 if (!timingsMS.isEmpty()) {
                     BenchmarkResult result = new BenchmarkResult(
                             algorithm.getAlgorithmName(),
-                            fileeSize,
+                            fileSizeMB,
                             timingsMS
                     );
                     results.add(result);
@@ -208,7 +208,7 @@ public class EncryptionBenchmark {
                 Arrays.fill(key, (byte) 0);
 
             } catch (Exception e) {
-                Log.e(TAG, "Benchmark failed for " + fileeSizeMB + "MB", e);
+                Log.e(TAG, "Benchmark failed for " + fileSizeMB + "MB", e);
             }
         }
 
