@@ -69,6 +69,31 @@ public class EncryptionBenchmark {
         public final double coefficientOfVariation;
         public final int iterations;
 
+
+        // Statistical calculations for BenchmarkResult class
+        private static double calculateMean(List<Double> values) {
+            return values.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        }
+
+
+        private static double calculateStdDev(List<Double> values, double mean) {
+            double variance = values.stream()
+                    .mapToDouble(v -> Math.pow(v - mean, 2))
+                    .average()
+                    .orElse(0.0);
+            return Math.sqrt(variance);
+        }
+
+
+        private static double calculatePercentile(List<Double> sortedValues, double percentile) {
+            if (sortedValues.isEmpty()) return 0.0;
+
+            int index = (int) Math.ceil((percentile / 100.0) * sortedValues.size()) - 1;
+            index = Math.max(0, Math.min(index, sortedValues.size() - 1));
+            return sortedValues.get(index);
+        }
+
+
         public BenchmarkResult(String algorithmName, int fileSizeMB, List<Double> timingMS) {
             this.algorithmName = algorithmName;
             this.fileSizeMB = fileSizeMB;
@@ -125,6 +150,36 @@ public class EncryptionBenchmark {
         }
 
     }
+
+
+    /**
+     * Create a test file with specified size in MB
+     * Fills with pseudo-random but compressible data (text patterns)
+     */
+    private File createTestFile(int sizeMB) throws IOException {
+        File testFile = new File(context.getFilesDir(), "benchmark_test_" + sizeMB + "mb.txt");
+
+        try (FileOutputStream fos = new FileOutputStream(testFile)) {
+            // Create repeating text pattern for a more realistic input rather than pure random
+            String pattern = "This is benchmark test data for Raziel encryption performance testing. " +
+                    "The quick brown fox jumps over the lazy dog. " +
+                    "Pack my box with five dozen liquor jugs. " +
+                    "How vexingly quick draft zebras jump! ";
+
+            byte[] patternBytes = pattern.getBytes();
+            long targetBytes = (long) sizeMB * 1024 * 1024;
+            long written = 0;
+
+            while (written < targetBytes) {
+                int toWrite = (int) Math.min(patternBytes.length, targetBytes - written);
+                fos.write(patternBytes, 0, toWrite);
+                written += toWrite;
+            }
+        }
+
+        return testFile;
+    }
+
 
     /**
      * Run granular benchmark for an encryption algorithm
@@ -215,6 +270,7 @@ public class EncryptionBenchmark {
         return results;
     }
 
+
     /**
      * Compare two algorithms and calculate improvement percentage
      * Using statistical t-test to determine if improvement is significant
@@ -243,6 +299,7 @@ public class EncryptionBenchmark {
                     > (baselineCI + optimisedCI);
         }
 
+
         @Override
         public String toString() {
             return String.format(
@@ -257,8 +314,9 @@ public class EncryptionBenchmark {
 
     }
 
+
     /**
-     * Compare two ets of benchmark results
+     * Compare two sets of benchmark results
      */
     public List<ComparisonResult> comparisonResults(List<BenchmarkResult> baselineResults,
                                                     List<BenchmarkResult> optimisedResults) {
@@ -275,54 +333,5 @@ public class EncryptionBenchmark {
         }
 
         return comparisons;
-    }
-
-    /**
-     * Create a test file with specified size in MB
-     * Fills with pseudo-random but compressible data (text patterns)
-     */
-    private File createTestFile(int sizeMB) throws IOException {
-        File testFile = new File(context.getFilesDir(), "benchmark_test_" + sizeMB + "mb.txt");
-
-        try (FileOutputStream fos = new FileOutputStream(testFile)) {
-            // Create repeating text pattern for a more realistic input rather than pure random
-            String pattern = "This is benchmark test data for Raziel encryption performance testing. " +
-                    "The quick brown fox jumps over the lazy dog. " +
-                    "Pack my box with five dozen liquor jugs. " +
-                    "How vexingly quick draft zebras jump! ";
-
-            byte[] patternBytes = pattern.getBytes();
-            long targetBytes = (long) sizeMB * 1024 * 1024;
-            long written = 0;
-
-            while (written < targetBytes) {
-                int toWrite = (int) Math.min(patternBytes.length, targetBytes - written);
-                fos.write(patternBytes, 0, toWrite);
-                written += toWrite;
-            }
-        }
-
-        return testFile;
-    }
-
-    // Statistical calculation helpers
-    private static double calculateMean(List<Double> values) {
-        return values.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-    }
-
-    private static double calculateStdDev(List<Double> values, double mean) {
-        double variance = values.stream()
-                .mapToDouble(v -> Math.pow(v - mean, 2))
-                .average()
-                .orElse(0.0);
-        return Math.sqrt(variance);
-    }
-
-    private static double calculatePercentile(List<Double> sortedValues, double percentile) {
-        if (sortedValues.isEmpty()) return 0.0;
-
-        int index = (int) Math.ceil((percentile / 100.0) * sortedValues.size()) - 1;
-        index = Math.max(0, Math.min(index, sortedValues.size() - 1));
-        return sortedValues.get(index);
     }
 }

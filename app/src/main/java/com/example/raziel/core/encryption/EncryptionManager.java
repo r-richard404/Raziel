@@ -1,10 +1,13 @@
 package com.example.raziel.core.encryption;
 
 import android.content.Context;
+import android.util.Log;
 
 import com.example.raziel.core.encryption.algorithms.AES_256;
+import com.example.raziel.core.encryption.algorithms.ChaCha20_Poly1305;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
 import com.example.raziel.core.encryption.models.EncryptionResult;
+import com.example.raziel.core.performance.PerformanceMetrics;
 
 import java.io.File;
 import java.util.Arrays;
@@ -14,7 +17,6 @@ import java.util.List;
 * Uses Single Responsibility by managing encryption operations and algorithm selection
 * Dependent on InterfaceEncryptionAlgorithm abstraction
 */
-
 public class EncryptionManager {
     // Available encryption algorithms
     // TODO: Left list only with 1 algorithm until the others are implemented
@@ -24,12 +26,15 @@ public class EncryptionManager {
     // Context needed for device capability detection (memory class, CPU cores, etc)
     private final Context context;
 
-    // Currently using only AES-256
-    // TODO: add ChaCha20-Poly1305 for devices without AES-NI
+    // Currently using only AES-256 and ChaCha20-Poly1305
     private final List<InterfaceEncryptionAlgorithm> availableAlgorithms;
+
+    // Performance metrics collector
+    private final PerformanceMetrics performanceMetrics;
 
     // TODO: temporary key before implementing key management system
     private byte[] lastEncryptionKey = null;
+
 
     /**
      * Constructor initialises encryption manager with device context
@@ -43,11 +48,13 @@ public class EncryptionManager {
      */
     public EncryptionManager(Context context) {
         this.context = context;
+        this.performanceMetrics = new PerformanceMetrics();
 
         // Initialising available algorithms
         // Context is passed for algorithms to adapt to device capabilities
+        this.availableAlgorithms = Arrays.asList(new AES_256(context), new ChaCha20_Poly1305(context));
 
-        this.availableAlgorithms = Arrays.asList(new AES_256(context));
+        Log.d(TAG, "Encryption Manager initialised with " + availableAlgorithms.size() + " algorithms");
     }
 
 
@@ -62,6 +69,40 @@ public class EncryptionManager {
 
 
     /**
+     * Get current performance metrics
+     *
+     * @return Performance metrics snapshot
+     */
+    public PerformanceMetrics.PerformanceSnapshot getPerformanceMetrics() {
+        return performanceMetrics.getSnapshot();
+    }
+
+
+    /**
+     * Reset performance metrics
+     */
+    public void resetMetrics() {
+        performanceMetrics.reset();
+    }
+
+
+    /**
+     * Find algorithm implementation by name
+     *
+     * @param name Algorithm name (e.g. AES)
+     * @return Algorithm implementation or null if not found
+     */
+    public InterfaceEncryptionAlgorithm getAlgorithmByName(String name) {
+        for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
+            if (algorithm.getAlgorithmName().equals(name)) {
+                return algorithm;
+            }
+        }
+        return null;
+    }
+
+
+    /**
      * Encrypts a file using the specified algorithm
      *
      *
@@ -70,7 +111,6 @@ public class EncryptionManager {
      * @param outputFileName Optional custom output filename
      * @return Encryption result with success/failure status and metrics
      */
-    // Encrypting a file using the specified algorithm chosen
     public EncryptionResult encryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, String outputFileName) {
         long startTime = System.nanoTime();
 
@@ -102,7 +142,16 @@ public class EncryptionManager {
             // Perform encryption
             boolean success = algorithm.encryptFile(inputFile, outputFile, key, null);
             long endTime = System.nanoTime();
-            long elapsedMS = (endTime - startTime) / 1_000_000; // Convert nano to milliseconds
+            long elapsedNS = (endTime - startTime); // Used for performance metric
+            long elapsedMS =  elapsedNS / 1_000_000; // Convert nano to milliseconds
+
+            // Record Metrics
+            performanceMetrics.recordOperation(
+                    algorithm.getAlgorithmName(),
+                    inputFile.length(),
+                    elapsedNS,
+                    success
+            );
 
             if (success) {
                 // Zero out the key from memory immediately after use to ensure security
@@ -172,7 +221,16 @@ public class EncryptionManager {
             // Perform decryption
             boolean success = algorithm.decryptFile(inputFile, outputFile, key, null);
             long endTime = System.nanoTime();
-            long elapsedMS = (endTime - startTime) / 1_000_000;
+            long elapsedNS = (endTime - startTime);
+            long elapsedMS =  elapsedNS / 1_000_000;
+
+            // Performance Metrics
+            performanceMetrics.recordOperation(
+                    algorithm.getAlgorithmName(),
+                    inputFile.length(),
+                    elapsedNS,
+                    success
+            );
 
             // Security practice to zero out keys after use
             if (key != null) {
@@ -187,22 +245,6 @@ public class EncryptionManager {
         } catch (Exception e) {
             return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Decryption error: " + e.getMessage(), inputFile);
         }
-    }
-
-
-    /**
-     * Find algorithm implementation by name
-     *
-     * @param name Algorithm name (e.g. AES)
-     * @return  Algorithm implementation or null if not found
-     */
-    public InterfaceEncryptionAlgorithm getAlgorithmByName(String name) {
-        for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
-            if (algorithm.getAlgorithmName().equals(name)) {
-                return algorithm;
-            }
-        }
-        return null;
     }
 
 
@@ -222,12 +264,20 @@ public class EncryptionManager {
      *
      */
     public void cleanup() {
+        Log.d(TAG, "Cleaning up EncryptionManager resources");
         // Clean up each algorithm's resources
         for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
             if (algorithm instanceof AES_256) {
                 AES_256.cleanup();
+            } else if (algorithm instanceof ChaCha20_Poly1305) {
+                ChaCha20_Poly1305.cleanup();
             }
-            // TODO: Add cleanup for other algorithm types
+        }
+
+        // Clear stored keys
+        if (lastEncryptionKey != null) {
+            Arrays.fill(lastEncryptionKey, (byte) 0);
+            lastEncryptionKey = null;
         }
     }
 }

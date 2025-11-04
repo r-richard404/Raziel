@@ -15,7 +15,6 @@ import com.example.raziel.core.encryption.models.EncryptionResult;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 
 /**
  * Main Activity for testing encryption performance optimisations
@@ -131,6 +130,124 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
+     * Getting the current selected algorithm from the spinner
+     *
+     * @return Current selected algorithm from spinner
+     */
+    private InterfaceEncryptionAlgorithm getSelectedAlgorithm() {
+        String selectedName = (String) algorithmSpinner.getSelectedItem();
+        return encryptionManager.getAlgorithmByName(selectedName);
+    }
+
+
+    /**
+     * Analysing performance metrics and providing feedback
+     *
+     * @param throughputMBs Input throughput
+     * @param fileSizeMB future measure
+     * @return Feedback based on performance obtained
+     */
+    private String analysePerfomance(double throughputMBs, long fileSizeMB) {
+        if (throughputMBs > 200) {
+            return "Excellent! Hardware acceleration or optimal buffering detected.";
+        } else if(throughputMBs > 100) {
+            return "Good performance. Software optimisation working effectively.";
+        } else if(throughputMBs > 50) {
+            return "Fair performance. Consider enabling additional optimisations.";
+        } else {
+            return "Below expected performance. Check device capabilities and buffer sizing.";
+        }
+    }
+
+
+    /**
+     * Update status text on UI thread
+     */
+    private void updateStatus(String message) {
+        runOnUiThread(() -> processStatus.setText(message));
+    }
+
+
+    /**
+     * Enable/disable UI controls during operations
+     */
+    private void setUiEnabled(boolean enabled) {
+        runOnUiThread(() -> {
+            btnEncrypt.setEnabled(enabled);
+            btnDecrypt.setEnabled(enabled);
+            algorithmSpinner.setEnabled(enabled);
+            progressBar.setVisibility(enabled ? View.GONE : View.VISIBLE);
+        });
+    }
+
+
+    /**
+     * Clean up resources when activity is destroyed
+     *
+     * Ensures proper clean up of:
+     * ThreadLocal cipher instances
+     * Cached cryptographic material
+     * Native resources
+     */
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (encryptionManager != null) {
+            encryptionManager.cleanup();
+        }
+    }
+
+
+    /**
+     * Handling encryption/decryption result and displaying detailed metrics
+     *
+     * These help to validate that optimisations are working by:
+     * Showing processing time
+     * Showing throughput
+     * Showing success or not
+     *
+     * @param result Passing the result of the encryption to be processed for display
+     */
+    private void handleEncryptionResult(EncryptionResult result) {
+        if (result.isSuccess()) {
+            // Calculate throughput to validate performance
+            long fileSizeMB = result.getFileSizeBytes() / 1024 / 1024;
+            double timeSec = result.getProcessingTimeMs() / 1000.0;
+            double throughputMBs = fileSizeMB / timeSec;
+
+            @SuppressLint("DefaultLocale")
+            String message = String.format(
+                    "%s SUCCESSFUL!\n\n" +
+                            "Algorithm: %s\n" +
+                            "File Size: %d MB\n" +
+                            "Processing Time: %d ms\n" +
+                            "Throughput: %.2f MB/s\n\n" +
+                            "Input: %s\n" +
+                            "Output: %s\n\n" +
+                            "Performance Analysis: \n%s",
+                    result.getOperation(),
+                    result.getAlgorithmName(),
+                    fileSizeMB,
+                    result.getProcessingTimeMs(),
+                    throughputMBs,
+                    result.getInputFile().getName(),
+                    result.getOutputFile().getName(),
+                    analysePerfomance(throughputMBs, fileSizeMB));
+
+            updateStatus(message);
+
+        } else {
+            updateStatus(String.format(
+                    "%s FAILED \n\nError: %s\n\n File: %s",
+                    result.getOperation(),
+                    result.getErrorMessage(),
+                    result.getInputFile().getName()
+            ));
+        }
+    }
+
+
+    /**
      * Perform Encryption on background thread
      *
      * Threading Architecture:
@@ -217,124 +334,6 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
         }).start();
-    }
-
-
-    /**
-     * Getting the current selected algorithm from the spinner
-     *
-     * @return Current selected algorithm from spinner
-     */
-    private InterfaceEncryptionAlgorithm getSelectedAlgorithm() {
-        String selectedName = (String) algorithmSpinner.getSelectedItem();
-        return encryptionManager.getAlgorithmByName(selectedName);
-    }
-
-
-    /**
-     * Handling encryption/decryption result and displaying detailed metrics
-     *
-     * These help to validate that optimisations are working by:
-     * Showing processing time
-     * Showing throughput
-     * Showing success or not
-     *
-     * @param result Passing the result of the encryption to be processed for display
-     */
-    private void handleEncryptionResult(EncryptionResult result) {
-        if (result.isSuccess()) {
-            // Calculate throughput to validate performance
-            long fileSizeMB = result.getFileSizeBytes() / 1024 / 1024;
-            double timeSec = result.getProcessingTimeMs() / 1000.0;
-            double throughputMBs = fileSizeMB / timeSec;
-
-            @SuppressLint("DefaultLocale")
-            String message = String.format(
-                    "%s SUCCESSFUL!\n\n" +
-                            "Algorithm: %s\n" +
-                            "File Size: %d MB\n" +
-                            "Processing Time: %d ms\n" +
-                            "Throughput: %.2f MB/s\n\n" +
-                            "Input: %s\n" +
-                            "Output: %s\n\n" +
-                            "Performance Analysis: \n%s",
-                    result.getOperation(),
-                    result.getAlgorithmName(),
-                    fileSizeMB,
-                    result.getProcessingTimeMs(),
-                    throughputMBs,
-                    result.getInputFile().getName(),
-                    result.getOutputFile().getName(),
-                    analysePerfomance(throughputMBs, fileSizeMB));
-
-            updateStatus(message);
-
-        } else {
-            updateStatus(String.format(
-                    "%s FAILED \n\nError: %s\n\n File: %s",
-                    result.getOperation(),
-                    result.getErrorMessage(),
-                    result.getInputFile().getName()
-            ));
-        }
-    }
-
-
-    /**
-     * Analysing performance metrics and providing feedback
-     *
-     * @param throughputMBs Input throughput
-     * @param fileSizeMB future measure
-     * @return Feedback based on performance obtained
-     */
-    private String analysePerfomance(double throughputMBs, long fileSizeMB) {
-        if (throughputMBs > 200) {
-            return "Excellent! Hardware acceleration or optimal buffering detected.";
-        } else if(throughputMBs > 100) {
-            return "Good performance. Software optimisation working effectively.";
-        } else if(throughputMBs > 50) {
-            return "Fair performance. Consider enabling additional optimisations.";
-        } else {
-            return "Below expected performance. Check device capabilities and buffer sizing.";
-        }
-    }
-
-
-    /**
-     * Update status text on UI thread
-     */
-    private void updateStatus(String message) {
-        runOnUiThread(() -> processStatus.setText(message));
-    }
-
-
-    /**
-     * Enable/disable UI controls during operations
-     */
-    private void setUiEnabled(boolean enabled) {
-        runOnUiThread(() -> {
-            btnEncrypt.setEnabled(enabled);
-            btnDecrypt.setEnabled(enabled);
-            algorithmSpinner.setEnabled(enabled);
-            progressBar.setVisibility(enabled ? View.GONE : View.VISIBLE);
-        });
-    }
-
-
-    /**
-     * Clean up resources when activity is destroyed
-     *
-     * Ensures proper clean up of:
-     * ThreadLocal cipher instances
-     * Cached cryptographic material
-     * Native resources
-     */
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (encryptionManager != null) {
-            encryptionManager.cleanup();
-        }
     }
 }
 

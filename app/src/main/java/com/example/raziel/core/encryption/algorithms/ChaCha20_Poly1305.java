@@ -5,10 +5,8 @@ import android.util.Log;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 
 import javax.crypto.Cipher;
@@ -16,8 +14,6 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-
-import kotlin.internal.OnlyInputTypes;
 
 /**
  * ChaCha20-Poly1305 implementation for software-optimised encryption
@@ -46,7 +42,6 @@ import kotlin.internal.OnlyInputTypes;
  * - Integrity: Verifies data origin and detects tampering
  * - Authentication: Poly1305 provides strong authentication
  */
-
 public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
     private static final String TAG = "ChaCha20-Poly1305";
     private static final String ALGORITHM = "ChaCha20";
@@ -321,6 +316,7 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
             java.util.Arrays.fill(buffer, (byte) 0);
         }
     }
+
 
     /**
      * Clean up resources when algorithm instance is no longer needed
