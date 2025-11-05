@@ -275,14 +275,14 @@ public class EncryptionBenchmark {
      * Compare two algorithms and calculate improvement percentage
      * Using statistical t-test to determine if improvement is significant
      */
-    public static class ComparisonResult {
+    public static class CompareResult {
         public final String baseline;
         public final String optimised;
         public final int fileSizeMB;
         public final double improvementPercent;
         public final boolean statisticallySignificant;
 
-        public ComparisonResult(BenchmarkResult baselineResult, BenchmarkResult optimisedResult) {
+        public CompareResult(BenchmarkResult baselineResult, BenchmarkResult optimisedResult) {
            this.baseline = baselineResult.algorithmName;
            this.optimised = optimisedResult.algorithmName;
            this.fileSizeMB = baselineResult.fileSizeMB;
@@ -318,14 +318,14 @@ public class EncryptionBenchmark {
     /**
      * Compare two sets of benchmark results
      */
-    public List<ComparisonResult> comparisonResults(List<BenchmarkResult> baselineResults,
+    public List<CompareResult> compareResults(List<BenchmarkResult> baselineResults,
                                                     List<BenchmarkResult> optimisedResults) {
-        List<ComparisonResult> comparisons = new ArrayList<>();
+        List<CompareResult> comparisons = new ArrayList<>();
 
         for (BenchmarkResult baseline : baselineResults) {
             for (BenchmarkResult optimised : optimisedResults) {
                 if (baseline.fileSizeMB == optimised.fileSizeMB) {
-                    ComparisonResult comparison = new ComparisonResult(baseline, optimised);
+                    CompareResult comparison = new CompareResult(baseline, optimised);
                     comparisons.add(comparison);
                     Log.d(TAG, comparison.toString());
                 }
