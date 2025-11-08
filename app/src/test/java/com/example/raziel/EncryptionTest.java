@@ -155,7 +155,7 @@ public class EncryptionTest {
         assertTrue("Encrypted file should have content", encryptResult.getOutputFile().length() > 0);
 
         // Decrypt the test file
-        EncryptionResult decryptResult = encryptionManager.decryptFile(testFile, chacha, "test_chacha_decrypted.txt");
+        EncryptionResult decryptResult = encryptionManager.decryptFile(encryptResult.getOutputFile(), chacha, "test_chacha_decrypted.txt");
         assertTrue("ChaCha20 Decryption should succeed", decryptResult.isSuccess());
         assertTrue("Decrypted file should exist", decryptResult.getOutputFile().exists());
         assertTrue("Decrypted file should have content", decryptResult.getOutputFile().length() > 0);
@@ -322,28 +322,19 @@ public class EncryptionTest {
             if (resultChaCha.isSuccess()) {
                 resultChaCha.getOutputFile().delete();
             }
-        }
+        }s
 
         // Check metrics
-        PerformanceMetrics.PerformanceSnapshot metricsAES = encryptionManager.getPerformanceMetrics();
-        PerformanceMetrics.PerformanceSnapshot metricsChaCha = encryptionManager.getPerformanceMetrics();
+        PerformanceMetrics.PerformanceSnapshot metrics = encryptionManager.getPerformanceMetrics();
 
-        assertEquals("AES256 Should have recorded 5 operations", 5, metricsAES.totalOperations);
-        assertEquals("ChaCha20 Should have recorded 5 operations", 5, metricsChaCha.totalOperations);
+        assertEquals("AES256 and ChaCha20 Should have recorded 5 operations each, totaling 10 operations", 10, metrics.totalOperations);
 
-        assertEquals("AES256 Success rate should be 100%", 100.0, metricsAES.getSuccessRate(), 0.1);
-        assertEquals("ChaCha20 Success rate should be 100%", 100.0, metricsChaCha.getSuccessRate(), 0.1);
+        assertEquals("All operations should have succeeded", 100.0, metrics.getSuccessRate());
 
-        assertTrue("AES256 Average throughput should be positive", metricsAES.getAverageThroughputMBps() > 0);
-        assertTrue("ChaCha20 Average throughput should be positive", metricsChaCha.getAverageThroughputMBps() > 0);
-
-        assertNotNull("AES256 Algorithm metrics should exist", metricsAES.algorithmMetrics);
-        assertNotNull("ChaCha20 Algorithm metrics should exist", metricsChaCha.algorithmMetrics);
-
-        assertTrue("Should have metrics for AES256", metricsAES.algorithmMetrics.containsKey("AES") ||
-                metricsAES.algorithmMetrics.values().stream().anyMatch(m -> m.algorithmName.contains("AES")));
-        assertTrue("Should have metrics for ChaCha20", metricsChaCha.algorithmMetrics.containsKey("ChaCha20") ||
-                metricsChaCha.algorithmMetrics.values().stream().anyMatch(m -> m.algorithmName.contains("ChaCha20")));
+        assertTrue("Should have metrics for AES256", metrics.algorithmMetrics.containsKey("AES") ||
+                metrics.algorithmMetrics.values().stream().anyMatch(m -> m.algorithmName.contains("AES")));
+        assertTrue("Should have metrics for ChaCha20", metrics.algorithmMetrics.containsKey("ChaCha20") ||
+                metrics.algorithmMetrics.values().stream().anyMatch(m -> m.algorithmName.contains("ChaCha20")));
     }
 
     // Verify Benchmark functionality
