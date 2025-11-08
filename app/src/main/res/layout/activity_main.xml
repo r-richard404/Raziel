@@ -1,98 +1,342 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="36dp"
-    android:background="@color/black">
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:background="?attr/colorSurface">
 
-    <LinearLayout
+    <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:fitsSystemWindows="true">
 
-        <!-- Header -->
-        <TextView
+        <com.google.android.material.appbar.AppBarLayout
+            android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Raziel - Encryption Test"
-            android:textSize="36sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:layout_marginBottom="36dp"
-            android:textColor="@color/white" />
+            android:layout_height="?attr/actionBarSize"
+            app:title="Raziel - Encryption Suite"
+            app:titleTextColor="?attr/colorOnPrimary"
+            style="@style/Widget.Material3.Toolbar.OnSurface"/>
+    </com.google.android.material.appbar.AppBarLayout>
 
-
-        <!-- Algorithm Selection -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Select Encryption Algorithm: "
-            android:textSize="18sp"
-            android:layout_marginBottom="9dp"
-            android:textColor="@color/white"/>
-
-        <Spinner
-            android:id="@+id/algorithmSpinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="36dp"
-            android:background="@color/white"/>
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:weightSum="3">
+            android:orientation="vertical"
+            android:padding="16dp">
 
-            <Button
-                android:id="@+id/btnEncrypt"
-                android:layout_width="0dp"
+            <!-- Performance Metrics Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="2"
-                android:text="ENCRYPT TEXT FILE"
-                android:textColor="@color/black"
-                android:layout_marginEnd="9dp"
-                android:backgroundTint="@color/white"
-                android:textStyle="bold"/>
+                android:layout_marginBottom="16dp"
+                app:cardElevation="2dp"
+                app:cardCornerRadius="12dp">
 
-            <Button
-                android:id="@+id/btnDecrypt"
-                android:layout_width="0dp"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Device Performance"
+                        android:textAppearance="?attr/textAppearanceTitleMedium"
+                        android:layout_marginBottom="8dp"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipDevice"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Samsung S23"
+                            android:layout_marginEnd="8dp"
+                            app:chipIcon="@drawable/ic_launcher_foreground"/>
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipMemory"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="8GB RAM"
+                            android:layout_marginEnd="8dp"/>
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipCores"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="8 Cores"/>
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Algorithm Selection Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Decrypt"
-                android:textColor="@color/black"
-                android:layout_marginEnd="9dp"
-                android:backgroundTint="@color/white"
-                android:textStyle="bold"/>
+                android:layout_marginBottom="16dp"
+                app:cardElevation="2dp"
+                app:cardCornerRadius="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Encryption Algorithm"
+                        android:textAppearance="?attr/textAppearanceTitleMedium"
+                        android:layout_marginBottom="12dp"/>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                        android:hint="Select Algorithm">
+
+                        <AutoCompleteTextView
+                            android:id="@+id/algorithmDropdown"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="none"
+                            android:text="AES-256-GCM"/>
+
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <!-- Hardware Acceleration Indicator -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Hardware Acceleration"
+                            android:textAppearance="?attr/textAppearanceBodyMedium"/>
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipHardwareStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="32dp"
+                            android:text="Enabled"
+                            app:chipBackgroundColor="@color/white"
+                            app:chipIconTint="@color/white"/>
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- File Size Selection -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardElevation="2dp"
+                app:cardCornerRadius="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Test File Size"
+                        android:textAppearance="?attr/textAppearanceTitleMedium"
+                        android:layout_marginBottom="12dp"/>
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/fileSizeSlider"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:valueFrom="1"
+                        android:valueTo="1000"
+                        android:value="10"
+                        app:labelBehavior="withinBounds"
+                        android:stepSize="1"/>
+
+                    <TextView
+                        android:id="@+id/fileSizeText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="10 MB"
+                        android:textAppearance="?attr/textAppearanceLabelLarge"
+                        android:gravity="center"
+                        android:layout_marginTop="8dp"/>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Action Buttons -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="16dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnEncrypt"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:text="ENCRYPT"
+                    android:layout_marginEnd="8dp"
+                    app:icon="@drawable/ic_launcher_foreground"
+                    style="@style/Widget.Material3.Button.TonalButton"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnDecrypt"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:text="DECRYPT"
+                    android:layout_marginStart="8dp"
+                    app:icon="@drawable/ic_launcher_foreground"
+                    style="@style/Widget.Material3.Button.OutlinedButton"/>\
+
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBenchmark"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="RUN FULL BENCHMARK"
+                android:layout_marginBottom ="16dp"
+                app:icon="@drawable/ic_launcher_foreground"
+                style="@style/Widget.Material3.Button.ElevatedButton"/>
+
+            <!-- Progress Indicator -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/progressCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                app:cardElevation="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/progressTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Processing..."
+                        android:textAppearance="?attr/textAppearanceTitleMedium"
+                        android:layout_marginBottom="8dp"/>
+
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/progressBar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:indeterminate="false"
+                        app:trackThickness="8dp"/>
+
+                    <TextView
+                        android:id="@+id/progressPercentage"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="0%"
+                        android:textAppearance="?attr/textAppearanceLabelLarge"
+                        android:gravity="end"
+                        android:layout_marginTop="4dp"/>
+
+                    <!-- Real-time Metrics -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="12dp">
+
+                        <TextView
+                            android:id="@+id/speedMetric"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="0 MB/s"
+                            android:textAppearance="?attr/textAppearanceBodySmall"/>
+
+                        <TextView
+                            android:id="@+id/timeRemaining"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="~0s remaining"
+                            android:textAppearance="?attr/textAppearanceBodySmall"/>
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Results Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/resultsCard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                app:cardElevation="2dp"
+                app:cardCornerRadius="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Performance Results"
+                        android:textAppearance="?attr/textAppearanceTitleMedium"
+                        android:layout_marginBottom="12dp"/>
+
+                    <TextView
+                        android:id="@+id/processStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:lineSpacingExtra="4dp"/>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
 
         </LinearLayout>
 
-        <!-- Progress -->
-        <ProgressBar
-            android:id="@+id/progressBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:visibility="gone"/>
+    </androidx.core.widget.NestedScrollView>
 
-        <!-- Status -->
-        <TextView
-            android:id="@+id/processStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Ready to test encryption..."
-            android:textSize="18sp"
-            android:layout_marginTop="36dp"
-            android:padding="18dp"
-            android:background="@color/white"
-            android:textColor="@color/black"
-            android:lineSpacingExtra="6dp"/>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
 
-
-    </LinearLayout>
-
-</ScrollView>
 
 
 

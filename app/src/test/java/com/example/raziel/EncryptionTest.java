@@ -394,7 +394,7 @@ public class EncryptionTest {
     @Test
     public void test_LargeFile_Handling() throws Exception {
         // Create 100MB test file
-        File largetFile = createTestFile("large_test.txt", generateLargeContent(10 * 1024 * 1024 * 1024));
+        File largetFile = createTestFile("large_test.txt", generateLargeContent(100 * 1024 * 1024));
 
         try {
             InterfaceEncryptionAlgorithm aes = encryptionManager.getAlgorithmByName("AES");
