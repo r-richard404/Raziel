@@ -105,6 +105,47 @@ public class PerformanceMetrics {
 
 
     /**
+     * Immutable snapshot of current performance metrics
+     */
+    public static class PerformanceSnapshot {
+        public final long totalOperations;
+        public final long successfulOperations;
+        public final long failedOperations;
+        public final long totalBytesProcessed;
+        public final long totalProcessingTimeNs;
+        public final ConcurrentHashMap<String, AlgorithmMetrics> algorithmMetrics;
+
+        public PerformanceSnapshot(
+                long totalOperations,
+                long successfulOperations,
+                long failedOperations,
+                long totalBytesProcessed,
+                long totalProcessingTimeNs,
+                ConcurrentHashMap<String, AlgorithmMetrics> algorithmMetrics) {
+
+                    this.totalOperations = totalOperations;
+                    this.successfulOperations = successfulOperations;
+                    this.failedOperations = failedOperations;
+                    this.totalBytesProcessed = totalBytesProcessed;
+                    this.totalProcessingTimeNs = totalProcessingTimeNs;
+                    this.algorithmMetrics = algorithmMetrics;
+        }
+
+        public double getSuccessRate() {
+                    return totalOperations > 0 ? (double) successfulOperations / totalOperations : 0.0;
+
+        }
+
+        public double getAverageThroughputMBps() {
+                    if (totalProcessingTimeNs == 0) return 0.0;
+                    double totalMB = totalBytesProcessed / 1024.0 / 1024.0;
+                    double totalSeconds = totalProcessingTimeNs / 1_000_000_000.0;
+                    return totalMB / totalSeconds;
+        }
+    }
+
+
+    /**
      * Get current performance snapshot
      */
     public PerformanceSnapshot getSnapshot() {
@@ -112,7 +153,6 @@ public class PerformanceMetrics {
                 totalOperations.get(),
                 successfulOperations.get(),
                 failedOperations.get(),
-                totalOperations.get(),
                 totalBytesProcessed.get(),
                 totalProcessingTimeNs.get(),
                 new ConcurrentHashMap<>(algorithmMetrics)
@@ -134,46 +174,5 @@ public class PerformanceMetrics {
         algorithmMetrics.clear();
 
         Log.d(TAG, "Metrics reset");
-    }
-
-
-    /**
-     * Immutable snapshot of current performance metrics
-     */
-    public static class PerformanceSnapshot {
-        public final long totalOperations;
-        public final long successfulOperations;
-        public final long failedOperations;
-        public final long totalBytesProcessed;
-        public final long totalProcessingTimeNs;
-        public final ConcurrentHashMap<String, AlgorithmMetrics> algorithmMetrics;
-
-        public PerformanceSnapshot(
-                long totalOperations,
-                long successfulOperations,
-                long failedOperations,
-                long totalBytesProcessed,
-                long totalProcessingTimeNs,
-                long l, ConcurrentHashMap<String, AlgorithmMetrics> algorithmMetrics) {
-
-                    this.totalOperations = totalOperations;
-                    this.successfulOperations = successfulOperations;
-                    this.failedOperations = failedOperations;
-                    this.totalBytesProcessed = totalBytesProcessed;
-                    this.totalProcessingTimeNs = totalProcessingTimeNs;
-                    this.algorithmMetrics = algorithmMetrics;
-        }
-
-        public double getSuccessRate() {
-                    return totalOperations > 0 ? (double) successfulOperations / totalOperations : 0.0;
-
-        }
-
-        public double getAverageThroughputMBps() {
-                    if (totalProcessingTimeNs == 0) return 0.0;
-                    double totalMB = totalBytesProcessed / 1024.0 / 1024.0;
-                    double totalSeconds = totalProcessingTimeNs / 1_000_000_000.0;
-                    return totalMB / totalSeconds;
-        }
     }
 }

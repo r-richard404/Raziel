@@ -16,16 +16,13 @@ public class ExternalFileManager implements FileManager{
     private Uri currentInputUri; // reading selected files
     private Uri currentOutputUri; // writing to selected locations
 
-
     public ExternalFileManager(Context context) {
         this.context = context;
     }
 
-
     public void setInputFileUri(Uri fileUri) {
         this.currentInputUri = fileUri;
     }
-
 
     public void setOutputFileUri(Uri fileUri) {
         this.currentOutputUri = fileUri;

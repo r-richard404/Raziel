@@ -294,7 +294,7 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
             double elapsedMS = (endTime - startTime) / 1_000_000.0;
             double throughputMBs = (bytesProcessed / 1024.0 / 1024.0) / (elapsedMS / 1000.0);
 
-            Log.d(TAG, String.format("Decryption complete: %.2f MB in %.2f ms (%.2f MB.s)",
+            Log.d(TAG, String.format("Decryption complete: %.2f MB in %.2f ms (%.2f MB/s)",
                     bytesProcessed / 1024.0 / 1024.0, elapsedMS, throughputMBs));
 
             return true;

@@ -22,6 +22,8 @@ import com.google.android.material.chip.Chip;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.slider.Slider;
 
+import org.junit.runner.RunWith;
+
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -70,8 +72,6 @@ public class MainActivity extends AppCompatActivity {
     private long bytesProcessed;
     private Handler progressHandler = new Handler(Looper.getMainLooper());
 
-    // Chunking for Large Files
-    private static final int CHUNK_SIZE_MB = 10; // Process in 10MB chunks large files
     private static final int MAX_THREADS = 4; // For parallel processing
     private ExecutorService executorService;
 
@@ -125,6 +125,18 @@ public class MainActivity extends AppCompatActivity {
         progressPercentage = findViewById(R.id.progressPercentage);
         processStatus = findViewById(R.id.processStatus);
 
+        speedMetric = findViewById(R.id.speedMetric);
+        timeRemaining = findViewById(R.id.timeRemaining);
+
+        // Device info chips
+        chipDevice = findViewById(R.id.chipDevice);
+        chipMemory = findViewById(R.id.chipMemory);
+        chipCores = findViewById(R.id.chipCores);
+        chipHardwareStatus = findViewById(R.id.chipHardwareStatus);
+
+        // Setup device information
+        setupDeviceInfo();
+
         // File Size Components
         fileSizeSlider = findViewById(R.id.fileSizeSlider);
         fileSizeText = findViewById(R.id.fileSizeText);
@@ -143,6 +155,34 @@ public class MainActivity extends AppCompatActivity {
         btnEncrypt.setOnClickListener(v -> performEncryption());
         btnDecrypt.setOnClickListener(v -> performDecryption());
         btnBenchmark.setOnClickListener(v -> runFullBenchmark());
+    }
+
+
+    /**
+     * Setup device information
+     */
+    private void setupDeviceInfo() {
+        // Device model
+        String deviceModel = Build.MODEL;
+        if (deviceModel != null && !deviceModel.isEmpty()) {
+            chipDevice.setText(deviceModel);
+        }
+
+        // Memory Info
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (am != null) {
+            ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(memoryInfo);
+            long totalMemoryMB = memoryInfo.totalMem / (1024 * 1024);
+            chipMemory.setText(String.format(Locale.US, "%dMB RAM", totalMemoryMB / 1024));
+        }
+
+        // CPU cores
+        int availableProcesors = Runtime.getRuntime().availableProcessors();
+        chipCores.setText(String.format(Locale.US, "%d Cores", availableProcesors));
+
+        // Hardware Acceleration status
+        chipHardwareStatus.setText("Available");
     }
 
 
@@ -180,14 +220,22 @@ public class MainActivity extends AppCompatActivity {
      */
     private void updateProgressUI(int progress, double speedMBps, double remainingSec) {
         runOnUiThread(() ->{
-            progressBar.setProgress(progress);
-            progressPercentage.setText(String.format("%d%%", progress));
-            speedMetric.setText(String.format("%.1f MB/s", speedMBps));
+            if (progressBar != null) {
+                progressBar.setProgress(progress);
+            }
+            if (progressPercentage != null) {
+                progressPercentage.setText(String.format("%d%%", progress));
+            }
+            if (speedMetric != null) {
+                speedMetric.setText(String.format("%.1f MB/s", speedMBps));
+            }
 
-            if (remainingSec < 60) {
-                timeRemaining.setText(String.format("~%.0fs remaining", remainingSec));
-            } else {
-                timeRemaining.setText(String.format("~%.1fm remaining", remainingSec / 60));
+            if (timeRemaining != null) {
+                if (remainingSec < 60) {
+                    timeRemaining.setText(String.format("~%.0fs remaining", remainingSec));
+                } else {
+                    timeRemaining.setText(String.format("~%.1fm remaining", remainingSec / 60));
+                }
             }
         });
     }
@@ -198,14 +246,18 @@ public class MainActivity extends AppCompatActivity {
      */
     private void updateProgress(String message, int progress) {
         runOnUiThread(() -> {
-            progressTitle.setText(message);
-            if (progress >= 0) {
-                progressBar.setIndeterminate(false);
-                progressBar.setProgress(progress);
-                progressPercentage.setText(progress + "%");
-            } else {
-                progressBar.setIndeterminate(true);
-                progressPercentage.setText("");
+            if (progressTitle != null) {
+                progressTitle.setText(message);
+            }
+            if (progressBar != null) {
+                if (progress >= 0) {
+                    progressBar.setIndeterminate(false);
+                    progressBar.setProgress(progress);
+                    progressPercentage.setText(progress + "%");
+                } else {
+                    progressBar.setIndeterminate(true);
+                    progressPercentage.setText("");
+                }
             }
         });
     }
@@ -265,7 +317,11 @@ public class MainActivity extends AppCompatActivity {
      * Update status text on UI thread
      */
     private void updateStatus(String message) {
-        runOnUiThread(() -> processStatus.setText(message));
+        runOnUiThread(() -> {
+            if (processStatus != null) {
+                processStatus.setText(message);
+            }
+        });
     }
 
 
@@ -274,8 +330,12 @@ public class MainActivity extends AppCompatActivity {
      */
     private void showResults(String message) {
         runOnUiThread(() -> {
-            processStatus.setText(message);
-            resultsCard.setVisibility(View.VISIBLE);
+            if (processStatus != null) {
+                processStatus.setText(message);
+            }
+            if (resultsCard != null) {
+                resultsCard.setVisibility(View.VISIBLE);
+            }
         });
     }
 
@@ -290,6 +350,7 @@ public class MainActivity extends AppCompatActivity {
 
         @SuppressLint("DefaultLocale") String message = String.format(
                 "SUCCESSFUL\n\n" +
+                        "Operation: %s\n" +
                         "Algorithm: %s\n" +
                         "File Size: %d MB\n" +
                         "Time: %.2f seconds\n" +
@@ -299,7 +360,7 @@ public class MainActivity extends AppCompatActivity {
                 result.getOperation(),
                 result.getAlgorithmName(),
                 fileSizeMB, timeSec, throughputMBps,
-                chipDevice.getText(),
+                chipDevice != null ? chipDevice.getText() : "Unknown",
                 Runtime.getRuntime().availableProcessors()
         );
 
@@ -312,12 +373,21 @@ public class MainActivity extends AppCompatActivity {
      */
     private void showProgress(boolean show) {
         runOnUiThread(() -> {
-            progressCard.setVisibility(show ? View.VISIBLE : View.GONE);
-            if (!show) {
+            if (progressBar != null) {
+                progressCard.setVisibility(show ? View.VISIBLE : View.GONE);
+            }
+
+            if (!show && progressBar != null) {
                 progressBar.setProgress(0);
-                progressPercentage.setText("0%");
-                speedMetric.setText("0 MB/s");
-                timeRemaining.setText("");
+                if (progressPercentage != null) {
+                    progressPercentage.setText("0%");
+                }
+                if (speedMetric != null) {
+                    speedMetric.setText("0 MB/s");
+                }
+                if (timeRemaining != null) {
+                    timeRemaining.setText("");
+                }
             }
         });
     }
@@ -328,11 +398,21 @@ public class MainActivity extends AppCompatActivity {
      */
     private void setUiEnabled(boolean enabled) {
         runOnUiThread(() -> {
-            btnEncrypt.setEnabled(enabled);
-            btnDecrypt.setEnabled(enabled);
-            btnBenchmark.setEnabled(enabled);
-            algorithmDropdown.setEnabled(enabled);
-            fileSizeSlider.setEnabled(enabled);
+            if (btnEncrypt != null) {
+                btnEncrypt.setEnabled(enabled);
+            }
+            if (btnDecrypt != null) {
+                btnDecrypt.setEnabled(enabled);
+            }
+            if (btnBenchmark != null) {
+                btnBenchmark.setEnabled(enabled);
+            }
+            if (algorithmDropdown != null) {
+                algorithmDropdown.setEnabled(enabled);
+            }
+            if (fileSizeSlider != null) {
+                fileSizeSlider.setEnabled(enabled);
+            }
         });
     }
 
@@ -343,6 +423,7 @@ public class MainActivity extends AppCompatActivity {
     private void runFullBenchmark() {
         showResults("Starting comprehensive benchmark...");
         //TODO: Implement benchmark class
+        updateStatus("Benchmark functionality will be implemented...");
     }
 
 
@@ -470,6 +551,11 @@ public class MainActivity extends AppCompatActivity {
                     setUiEnabled(true);
                     showProgress(false);
                 });
+            } finally {
+                // Clean up test file
+                if (testFile != null && testFile.exists()) {
+                    testFile.delete();
+                }
             }
         }).start();
     }
@@ -494,21 +580,40 @@ public class MainActivity extends AppCompatActivity {
         showProgress(true);
 
         new Thread(() -> {
-            String algorithmName = algorithmDropdown.getText().toString();
-            InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
+            try {
+                String algorithmName = algorithmDropdown.getText().toString();
+                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
 
-            EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, null);
+                if (algorithm == null) {
+                    runOnUiThread(() -> {
+                        showResults("Algorithm not found: " + algorithmName);
+                        setUiEnabled(true);
+                        showProgress(false);
+                    });
+                    return;
+                }
 
-            if (result.isSuccess()) {
-                showDetailedResults(result);
-            } else {
-                showResults("Decryption Failed: " + result.getErrorMessage());
+                // Start progress monitor
+                startProgressMonitoring(lastEncryptedFile.length());
+
+                EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, null);
+
+                stopProgressionMonitoring();
+
+                if (result.isSuccess()) {
+                    showDetailedResults(result);
+                } else {
+                    showResults("Decryption Failed: " + result.getErrorMessage());
+                }
+
+            } catch (Exception e) {
+                showResults("Decryption error: " + e);
+            } finally {
+                runOnUiThread(() -> {
+                    setUiEnabled(true);
+                    showProgress(false);
+                });
             }
-
-            runOnUiThread(() -> {
-                setUiEnabled(true);
-                showProgress(false);
-            });
         }).start();
     }
 
@@ -533,6 +638,7 @@ public class MainActivity extends AppCompatActivity {
             @SuppressLint("DefaultLocale")
             String message = String.format(
                     "%s SUCCESSFUL!\n\n" +
+                            "Operation: %s\n" +
                             "Algorithm: %s\n" +
                             "File Size: %d MB\n" +
                             "Processing Time: %d ms\n" +
@@ -557,7 +663,5 @@ public class MainActivity extends AppCompatActivity {
             ));
         }
     }
-
-
 }
 

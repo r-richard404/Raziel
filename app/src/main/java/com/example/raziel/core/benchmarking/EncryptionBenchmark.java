@@ -247,7 +247,5 @@ public class EncryptionBenchmark {
 
         return comparisons;
     }
-
-
   }
 
