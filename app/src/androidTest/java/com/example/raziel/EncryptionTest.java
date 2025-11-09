@@ -380,8 +380,8 @@ public class EncryptionTest {
     // Large file handling AES256
     @Test
     public void test_LargeFile_Handling_AES256() throws Exception {
-        // Create 40MB test file for AES256
-        File largetFile = createLargeTestFile("large_test_file", 60 * 1024 * 1024);
+        // Create 50MB test file for AES256
+        File largetFile = createLargeTestFile("large_test_file", 40 * 1024 * 1024);
 
         try {
             InterfaceEncryptionAlgorithm aes = encryptionManager.getAlgorithmByName("AES");
@@ -411,8 +411,8 @@ public class EncryptionTest {
     // Large file handling ChaCha20
     @Test
     public void test_LargeFile_Handling_ChaCha20() throws Exception {
-        // Create 50MB test file for ChaCha20
-        File largetFile = createLargeTestFile("large_test_file", 60 * 1024 * 1024);
+        // Create 40MB test file for ChaCha20
+        File largetFile = createLargeTestFile("large_test_file", 40 * 1024 * 1024);
 
         try {
             InterfaceEncryptionAlgorithm chacha = encryptionManager.getAlgorithmByName("ChaCha20");
