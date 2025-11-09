@@ -83,7 +83,6 @@ public class MainActivity extends AppCompatActivity {
 
         setupEncryptionManager();
         initialiseViews();
-        detectDeviceCapabilities();
         setupFileSizeSlider();
 
         //Initialise thread pool for large file processing
@@ -116,6 +115,7 @@ public class MainActivity extends AppCompatActivity {
         btnEncrypt = findViewById(R.id.btnEncrypt);
         btnDecrypt = findViewById(R.id.btnDecrypt);
         btnBenchmark = findViewById(R.id.btnBenchmark);
+        //btnCleanup = findViewById(R.id.btnCleanuo);
 
         // Progress Components
         progressBar = findViewById(R.id.progressBar);
@@ -123,19 +123,12 @@ public class MainActivity extends AppCompatActivity {
         resultsCard = findViewById(R.id.resultsCard);
         progressTitle = findViewById(R.id.progressTitle);
         progressPercentage = findViewById(R.id.progressPercentage);
-        speedMetric = findViewById(R.id.speedMetric);
-        timeRemaining = findViewById(R.id.speedMetric);
         processStatus = findViewById(R.id.processStatus);
 
         // File Size Components
         fileSizeSlider = findViewById(R.id.fileSizeSlider);
         fileSizeText = findViewById(R.id.fileSizeText);
 
-        // Device Info chips
-        chipDevice = findViewById(R.id.chipDevice);
-        chipMemory = findViewById(R.id.chipMemory);
-        chipCores = findViewById(R.id.chipCores);
-        chipHardwareStatus = findViewById(R.id.chipHardwareStatus);
 
         // Setup algorithm dropdown
         List<String> algorithms = new ArrayList<>();
@@ -150,21 +143,6 @@ public class MainActivity extends AppCompatActivity {
         btnEncrypt.setOnClickListener(v -> performEncryption());
         btnDecrypt.setOnClickListener(v -> performDecryption());
         btnBenchmark.setOnClickListener(v -> runFullBenchmark());
-    }
-
-    /**
-     * Check for hardware AES support
-     */
-    private boolean checkHardwareAESSupport() {
-        // On ARM devices check for AES instructions
-        //TODO: Have a better check for later project stages
-        String cpuFeatures = System.getProperty("os.arch");
-        if (cpuFeatures != null && (cpuFeatures.contains("aarch64") || cpuFeatures.contains("arm64"))) {
-
-            return true;
-        } else {
-            return false;
-        }
     }
 
 
@@ -270,34 +248,6 @@ public class MainActivity extends AppCompatActivity {
         };
 
         progressHandler.post(progressUpdater);
-    }
-
-
-    /**
-     * Detect and display device capabilities
-     */
-    private void detectDeviceCapabilities() {
-        // Device model
-        String deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
-        chipDevice.setText(deviceModel);
-
-        // Memory info
-        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-        if (am != null) {
-            ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
-            am.getMemoryInfo(memoryInfo);
-            long totalMem = memoryInfo.totalMem / (1024 * 1024 * 1024); // Convert to GB
-            chipMemory.setText(String.format("%d GB RAM", totalMem));
-        }
-
-        // CPU cores
-        int cores = Runtime.getRuntime().availableProcessors();
-        chipCores.setText(String.format("%d Cores", cores));
-
-        // Hardware acceleration (check for AES support)
-        boolean hasHardwareAES = checkHardwareAESSupport();
-        chipHardwareStatus.setText(hasHardwareAES ? "AES-NI" : "Software");
-        chipHardwareStatus.setChipBackgroundColorResource(hasHardwareAES ? android.R.color.holo_red_dark : android.R.color.holo_blue_bright);
     }
 
 
@@ -456,26 +406,6 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * Analysing performance metrics and providing feedback
-     *
-     * @param throughputMBs Input throughput
-     * @param fileSizeMB future measure
-     * @return Feedback based on performance obtained
-     */
-    private String analysePerformance(double throughputMBs, long fileSizeMB) {
-        if (throughputMBs > 200) {
-            return "Excellent! Hardware acceleration or optimal buffering detected.";
-        } else if(throughputMBs > 100) {
-            return "Good performance. Software optimisation working effectively.";
-        } else if(throughputMBs > 50) {
-            return "Fair performance. Consider enabling additional optimisations.";
-        } else {
-            return "Below expected performance. Check device capabilities and buffer sizing.";
-        }
-    }
-
-
-    /**
      * Standard encryption for smaller files
      */
     private void performStandardEncryption(File inputFile, InterfaceEncryptionAlgorithm algorithm) {
@@ -504,133 +434,6 @@ public class MainActivity extends AppCompatActivity {
 
 
     /**
-     * Chunk processing result
-     */
-    private static class ChunkResult {
-        final boolean success;
-        final long bytesProcessed;
-
-        ChunkResult(boolean success, long bytesProcessed) {
-            this.success = success;
-            this.bytesProcessed = bytesProcessed;
-        }
-    }
-
-
-    /**
-     * Process individual chunk
-     */
-    private ChunkResult processChunk(File inputFile, File outputFile, InterfaceEncryptionAlgorithm algorithm,
-                                     byte[] key, int chunkIndex, long chunkStart, int chunkSize) {
-        try {
-            // Read chunk from input file
-            byte[] chunkData = new byte[chunkSize];
-            try (RandomAccessFile raf = new RandomAccessFile(inputFile, "r")) {
-                raf.seek(chunkStart);
-                raf.readFully(chunkData);
-            }
-
-            return new ChunkResult(true, chunkSize);
-
-        } catch (Exception e) {
-            return new ChunkResult(false, 0);
-        }
-    }
-
-
-    /**
-     * Chunked encryption for large files (>= 100MB)
-     * Uses parallel processing for better performance
-     */
-    private void performChunkedEncryption(File inputFile, InterfaceEncryptionAlgorithm algorithm) {
-        long fileSize = inputFile.length();
-        int chunkSize = CHUNK_SIZE_MB * 1024 * 1024; // conver to bytes
-        int numChunks = (int) Math.ceil((double) fileSize / chunkSize);
-
-        startTime = SystemClock.elapsedRealtime();
-        bytesProcessed = 0;
-
-        updateProgress("Encryption with " + numChunks + " chunks...", 0);
-        startProgressMonitoring(fileSize);
-
-        try {
-            // Generate encryption key once for all chunks
-            byte[] key = algorithm.generateKey();
-
-            // Output file for encrypted data
-            File outputFile = new File(inputFile.getParent(), inputFile.getName() + ".encrypted");
-
-            // Process chunks in parallel
-            List<Future<ChunkResult>> futures = new ArrayList<>();
-
-            for (int i = 0; i < numChunks; i++) {
-                final int chunkIndex = i;
-                final long chunkStart = (long) i * chunkSize;
-                final int currentChunkSize = (int) Math.min(chunkSize, fileSize - chunkStart);
-
-                Future<ChunkResult> future = executorService.submit(() ->
-                        processChunk(inputFile, outputFile, algorithm, key, chunkIndex, chunkStart, currentChunkSize));
-                futures.add(future);
-            }
-
-            // Wait for all chunks to complete
-            boolean success = true;
-            for (Future<ChunkResult> future : futures) {
-                ChunkResult result = future.get();
-                if (!result.success) {
-                    success = false;
-                    break;
-                }
-                bytesProcessed += result.bytesProcessed;
-            }
-
-            stopProgressionMonitoring();
-
-            if (success) {
-                lastEncryptedFile = outputFile;
-                long elapsedMs = SystemClock.elapsedRealtime() - startTime;
-                showChunkedResults(fileSize, elapsedMs, numChunks);
-            } else {
-                showResults("Chunked encryption failed");
-            }
-        } catch (Exception e) {
-            showResults("Chunked encryption error: " + e.getMessage());
-        }
-
-        runOnUiThread(() -> {
-            setUiEnabled(true);
-            showProgress(false);
-        });
-    }
-
-
-    /**
-     * Show chunked encryption results
-     */
-    private void showChunkedResults(long fileSize, long elapsedMs, int chunks) {
-        long fileSizeMB = fileSize / (1024 * 1024);
-        double timeSec = elapsedMs / 1000.0;
-        double throughputMBps = fileSizeMB / timeSec;
-
-        @SuppressLint("DefaultLocale") String message = String.format(
-                "CHUNKED ENCRYPTION SUCCESSFUL\n\n" +
-                "File Size: %d MB\n" +
-                "Chunks: %d x %d MB\n" +
-                "Time: %.2f MB/s\n" +
-                "Throughput: %.2f MB/s\n" +
-                "Parallel Threads: %d\n" +
-                "Optimisation: %.1fx speedup",
-                fileSize, chunks, CHUNK_SIZE_MB,
-                timeSec, throughputMBps, MAX_THREADS,
-                Math.min(MAX_THREADS, chunks) * 0.8 // estimated speedup
-
-        );
-
-        showResults(message);
-    }
-
-
-    /**
      * Perform Encryption
      *
      * Threading Architecture:
@@ -640,8 +443,7 @@ public class MainActivity extends AppCompatActivity {
      *
      * Background thread is critical:
      * For Android's main thread must respond within 5 seconds or the system displays
-     * "Application Not Responding" dialog. Encryption of 10MB file should take 50-200ms, but
-     * is still done in the background for architectural purposes
+     * "Application Not Responding" dialog.
      */
     private void performEncryption() {
         setUiEnabled(false);
@@ -659,12 +461,9 @@ public class MainActivity extends AppCompatActivity {
                 String algorithmName = algorithmDropdown.getText().toString();
                 InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
 
-                // Check if we should use chunking for large files
-                if (sizeMB >= 100) {
-                    performChunkedEncryption(testFile, algorithm);
-                } else {
-                    performStandardEncryption(testFile, algorithm);
-                }
+                // TODO: Update with better encryption capability
+                performStandardEncryption(testFile, algorithm);
+
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     showResults("Encryption failed: " + e.getMessage());
@@ -714,8 +513,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-
-
     /**
      * Handling encryption/decryption result and displaying detailed metrics
      *
@@ -726,43 +523,40 @@ public class MainActivity extends AppCompatActivity {
      *
      * @param result Passing the result of the encryption to be processed for display
      */
-//    private void handleEncryptionResult(EncryptionResult result) {
-//        if (result.isSuccess()) {
-//            // Calculate throughput to validate performance
-//            long fileSizeMB = result.getFileSizeBytes() / 1024 / 1024;
-//            double timeSec = result.getProcessingTimeMs() / 1000.0;
-//            double throughputMBs = fileSizeMB / timeSec;
-//
-//            @SuppressLint("DefaultLocale")
-//            String message = String.format(
-//                    "%s SUCCESSFUL!\n\n" +
-//                            "Algorithm: %s\n" +
-//                            "File Size: %d MB\n" +
-//                            "Processing Time: %d ms\n" +
-//                            "Throughput: %.2f MB/s\n\n" +
-//                            "Input: %s\n" +
-//                            "Output: %s\n\n" +
-//                            "Performance Analysis: \n%s",
-//                    result.getOperation(),
-//                    result.getAlgorithmName(),
-//                    fileSizeMB,
-//                    result.getProcessingTimeMs(),
-//                    throughputMBs,
-//                    result.getInputFile().getName(),
-//                    result.getOutputFile().getName(),
-//                    analysePerfomance(throughputMBs, fileSizeMB));
-//
-//            updateStatus(message);
-//
-//        } else {
-//            updateStatus(String.format(
-//                    "%s FAILED \n\nError: %s\n\n File: %s",
-//                    result.getOperation(),
-//                    result.getErrorMessage(),
-//                    result.getInputFile().getName()
-//            ));
-//        }
-//    }
+    private void handleEncryptionResult(EncryptionResult result) {
+        if (result.isSuccess()) {
+            // Calculate throughput to validate performance
+            long fileSizeMB = result.getFileSizeBytes() / 1024 / 1024;
+            double timeSec = result.getProcessingTimeMs() / 1000.0;
+            double throughputMBs = fileSizeMB / timeSec;
+
+            @SuppressLint("DefaultLocale")
+            String message = String.format(
+                    "%s SUCCESSFUL!\n\n" +
+                            "Algorithm: %s\n" +
+                            "File Size: %d MB\n" +
+                            "Processing Time: %d ms\n" +
+                            "Throughput: %.2f MB/s\n\n" +
+                            "Input: %s\n" +
+                            "Output: %s\n\n",
+                    result.getOperation(),
+                    result.getAlgorithmName(),
+                    fileSizeMB,
+                    result.getProcessingTimeMs(),
+                    throughputMBs,
+                    result.getInputFile().getName(),
+                    result.getOutputFile().getName());
+            updateStatus(message);
+
+        } else {
+            updateStatus(String.format(
+                    "%s FAILED \n\nError: %s\n\n File: %s",
+                    result.getOperation(),
+                    result.getErrorMessage(),
+                    result.getInputFile().getName()
+            ));
+        }
+    }
 
 
 }

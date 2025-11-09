@@ -42,9 +42,10 @@ public class EncryptionBenchmark {
     private static final String TAG = "EncryptionBenchmark";
 
     // Benchmarking parameters
-    private static final int WARMUP_ITERATIONS = 3;
-    private static final int MEASUREMENT_ITERATIONS = 20;
-    private static final int[] TEST_FILE_SIZES_MB = {1, 10, 50, 100}; // testing a variation of sizes
+    private static final int NUM_RUNS = 5;
+    private static final int[] TEST_FILE_SIZES_MB = {1, 10, 20, 30, 40, 50}; // testing a variation of sizes for emulator capabilities
+
+    private static final int[] TEST_FILE_HARDWARE_SIZES_MB = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500}; // testing on S23 Ultra hardware
 
     private final Context context;
 
@@ -56,100 +57,38 @@ public class EncryptionBenchmark {
     /**
      * Result class holding granular benchmark metrics
      */
+
     public static class BenchmarkResult {
+
+
         public final String algorithmName;
         public final int fileSizeMB;
-        public final double meanTimeMS;
-        public final double stdDevMS;
-        public final double medianTimeMS;
-        public final double p90TimeMS;
-        public final double p95TimeMS;
-        public final double p99TimeMS;
+        public final double averageTimeMs;
         public final double throughputMBps;
-        public final double coefficientOfVariation;
-        public final int iterations;
+        public final int numRuns;
 
-
-        // Statistical calculations for BenchmarkResult class
-        private static double calculateMean(List<Double> values) {
-            return values.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-        }
-
-
-        private static double calculateStdDev(List<Double> values, double mean) {
-            double variance = values.stream()
-                    .mapToDouble(v -> Math.pow(v - mean, 2))
-                    .average()
-                    .orElse(0.0);
-            return Math.sqrt(variance);
-        }
-
-
-        private static double calculatePercentile(List<Double> sortedValues, double percentile) {
-            if (sortedValues.isEmpty()) return 0.0;
-
-            int index = (int) Math.ceil((percentile / 100.0) * sortedValues.size()) - 1;
-            index = Math.max(0, Math.min(index, sortedValues.size() - 1));
-            return sortedValues.get(index);
-        }
-
-
-        public BenchmarkResult(String algorithmName, int fileSizeMB, List<Double> timingMS) {
+        public BenchmarkResult(String algorithmName, int fileSizeMB,  double averageTimeMs, int numRuns) {
             this.algorithmName = algorithmName;
             this.fileSizeMB = fileSizeMB;
-            this.iterations = timingMS.size();
+            this.averageTimeMs = averageTimeMs;
+            this.numRuns = numRuns;
 
-            // Calculate statistical metrics
-            this.meanTimeMS = calculateMean(timingMS);
-            this.stdDevMS = calculateStdDev(timingMS, meanTimeMS);
-            this.coefficientOfVariation = (stdDevMS / meanTimeMS) * 100.0;
-
-            // Calculate percentiles
-            List<Double> sorted = new ArrayList<>(timingMS);
-            sorted.sort(Double::compareTo);
-            this.medianTimeMS = calculatePercentile(sorted, 50);
-            this.p90TimeMS = calculatePercentile(sorted, 90);
-            this.p95TimeMS = calculatePercentile(sorted, 95);
-            this.p99TimeMS = calculatePercentile(sorted, 99);
-
-            // Calculate throughput (MB/s)
-            this.throughputMBps = (fileSizeMB / (medianTimeMS / 1000.0));
+            // Calculate throughput
+            double averageTimeSec = averageTimeMs / 1000.0;
+            this.throughputMBps = fileSizeMB / averageTimeSec;
         }
 
 
-        /**
-         * Check if benchmark results are reproducible
-         * CV < 5%: Excellent reproducibility
-         * CV 5-10%: Good reproducibility
-         * CV 10%-20%: Acceptable for mobile
-         * CV > 20%: Poor reproducibility, need more controlled environment
-         */
-        public String getReproducibilityAssessment() {
-            if (coefficientOfVariation < 5.0) return "Excellent";
-            if (coefficientOfVariation < 10.0) return "Good";
-            if (coefficientOfVariation < 20.0) return "Acceptable";
-            return "Poor - Need more controlled environment";
+            @SuppressLint("DefaultLocale")
+            @Override
+            public String toString() {
+                return String.format("%s - %dMB: %.2f MB/s (%.0fms avg, %d runs)",
+                        algorithmName, fileSizeMB, throughputMBps, averageTimeMs, numRuns);
+            }
         }
 
 
-        @SuppressLint("DefaultLocale")
-        @Override
-        public String toString() {
-                return String.format(
-                "%s Benchmark Results (%d MB file):\n" +
-                "  Iterations: %d\n" +
-                "  Mean: %.2f ms +- %.2f ms\n" +
-                "  Median (P50): %.2f ms\n" +
-                "  P90: %.2f ms, P95: %.2f ms, P99: %.2f ms\n" +
-                "  Throughput: %.2f MB/s\n" +
-                "  CV: %.2f%% (%s reproducibiity) \n",
-                algorithmName, fileSizeMB, iterations, meanTimeMS,
-                stdDevMS, medianTimeMS, p90TimeMS, p95TimeMS,
-                throughputMBps, coefficientOfVariation, getReproducibilityAssessment()
-                );
-        }
 
-    }
 
 
     /**
@@ -198,72 +137,67 @@ public class EncryptionBenchmark {
 
         List<BenchmarkResult> results = new ArrayList<>();
 
-        for (int fileSizeMB : TEST_FILE_SIZES_MB) {
-            Log.d(TAG, "Benchmarking " + fileSizeMB + "MB file...");
-
+        for (int sizeMB : TEST_FILE_SIZES_MB) {
             try {
                 // Create test file
-                File testFile = createTestFile(fileSizeMB);
+                File testFile = createTestFile(sizeMB);
 
-                // Generate encryption key
-                byte[] key = algorithm.generateKey();
-                if (key == null) {
-                    Log.e(TAG, "Failed to generate key for " + algorithm.getAlgorithmName());
-                    continue;
-                }
+                // Run multiple times for average
+                long totalTimeMs = 0;
+                int successfulRuns = 0;
 
-                // Warmup phase (not measured)
-                Log.d(TAG, "Warmup phase (" + WARMUP_ITERATIONS + " Iterations)...");
-                for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-                    File outputFile = new File(context.getFilesDir(), "warmup_" + i + ".enc");
-                    algorithm.encryptFile(testFile, outputFile, key, null);
-                    outputFile.delete();
-                }
+                for (int run = 0; run < NUM_RUNS; run++) {
+                    // Generate key
+                    byte[] key = algorithm.generateKey();
+                    if (key == null) {
+                        Log.e(TAG, "Key generation failed");
+                        continue;
+                    }
 
-                // Measuremenht phase
-                Log.d(TAG, "Measurement phase (" + MEASUREMENT_ITERATIONS + " iterations)...");
-                List<Double> timingsMS = new ArrayList<>();
+                    // Create output file
+                    File outputFile = new File(context.getFilesDir(),
+                            "bench_" + sizeMB + "mb_run" + run + ".enc");
 
-                for (int i = 0; i < MEASUREMENT_ITERATIONS; i++) {
-                    File outputFile = new File(context.getFilesDir(), "bench_" + i + ".enc");
-
-                    // High-resolution timing
-                    long startNano = System.nanoTime();
+                    // Measure encryption time
+                    long startTime = System.currentTimeMillis();
                     boolean success = algorithm.encryptFile(testFile, outputFile, key, null);
-                    long endNano = System.nanoTime();
+                    long endTime = System.currentTimeMillis();
 
                     if (success) {
-                        double elapsedMS = (endNano - startNano) / 1_000_000.0;
-                        timingsMS.add(elapsedMS);
+                        totalTimeMs += (endTime - startTime);
+                        successfulRuns++;
                     } else {
-                        Log.w(TAG, "Encryption failed on iteration " + i);
+                        Log.w(TAG, "Encryption failed for run " + run);
                     }
 
                     // Clean up
-                    outputFile.delete();
+                    if (outputFile.exists()) {
+                        outputFile.delete();
+                    }
+
+                    // Zero out key
+                    java.util.Arrays.fill(key, (byte) 0);
+
+                    // Small delay between runs to prevent thermal throttling
+                    if (run < NUM_RUNS - 1) {
+                        Thread.sleep(100);
+                    }
                 }
 
-                // Calculate and store results
-                if (!timingsMS.isEmpty()) {
+                // Calculate average
+                if (successfulRuns > 0) {
+                    double averageTimeMs = (double) totalTimeMs / successfulRuns;
                     BenchmarkResult result = new BenchmarkResult(
-                            algorithm.getAlgorithmName(),
-                            fileSizeMB,
-                            timingsMS
-                    );
+                            algorithm.getAlgorithmName(), sizeMB, averageTimeMs, successfulRuns);
                     results.add(result);
                     Log.d(TAG, result.toString());
-                } else {
-                    Log.e(TAG, "No successful measurement for " + fileSizeMB + "MB");
                 }
 
                 // Clean up test file
                 testFile.delete();
 
-                // Zero out key
-                Arrays.fill(key, (byte) 0);
-
             } catch (Exception e) {
-                Log.e(TAG, "Benchmark failed for " + fileSizeMB + "MB", e);
+                Log.e(TAG, "Benchmark failed for " + sizeMB + "MB", e);
             }
         }
 
@@ -275,63 +209,45 @@ public class EncryptionBenchmark {
      * Compare two algorithms and calculate improvement percentage
      * Using statistical t-test to determine if improvement is significant
      */
-    public static class CompareResult {
-        public final String baseline;
-        public final String optimised;
-        public final int fileSizeMB;
-        public final double improvementPercent;
-        public final boolean statisticallySignificant;
+    public static List<String> compareAlgorithms(List<BenchmarkResult> algorithm1,
+                                                 List<BenchmarkResult> algorithm2) {
+        List<String> comparisons = new ArrayList<>();
 
-        public CompareResult(BenchmarkResult baselineResult, BenchmarkResult optimisedResult) {
-           this.baseline = baselineResult.algorithmName;
-           this.optimised = optimisedResult.algorithmName;
-           this.fileSizeMB = baselineResult.fileSizeMB;
+        // Compare matching file sizes
+        for (BenchmarkResult result1 : algorithm1) {
+            for (BenchmarkResult result2 : algorithm2) {
+                if (result1.fileSizeMB == result2.fileSizeMB) {
+                    // Determine which is faster
+                    String fasterAlg;
+                    double percentDiff;
 
-           // Calculate improvement percentage
-            this.improvementPercent = ((baselineResult.meanTimeMS - optimisedResult.meanTimeMS)
-                    / baselineResult.meanTimeMS) * 100.0;
+                    if (result1.throughputMBps > result2.throughputMBps) {
+                        fasterAlg = result1.algorithmName;
+                        percentDiff = ((result1.throughputMBps - result2.throughputMBps) /
+                                result2.throughputMBps) * 100.0;
+                    } else {
+                        fasterAlg = result2.algorithmName;
+                        percentDiff = ((result2.throughputMBps - result1.throughputMBps) /
+                                result1.throughputMBps) * 100.0;
+                    }
 
-            // Simple significance check based on non-overlapping confidence intervals
-            double baselineCI = 1.96 * baselineResult.stdDevMS; // 95% confidence interval
-            double optimisedCI = 1.96 * optimisedResult.stdDevMS;
+                    String comparison = String.format(
+                            "%dMB: %s is %.1f%% faster\n" +
+                                    "  %s: %.2f MB/s\n" +
+                                    "  %s: %.2f MB/s",
+                            result1.fileSizeMB, fasterAlg, percentDiff,
+                            result1.algorithmName, result1.throughputMBps,
+                            result2.algorithmName, result2.throughputMBps);
 
-            this.statisticallySignificant = Math.abs(baselineResult.meanTimeMS - optimisedResult.meanTimeMS)
-                    > (baselineCI + optimisedCI);
-        }
-
-
-        @Override
-        public String toString() {
-            return String.format(
-                    "Comparison (%d MB): %s vs %s\n" +
-                            "  Improvement: %.2f%% %s\n" +
-                            "  Statistically Significant: %s\n",
-                    fileSizeMB, baseline, optimised, improvementPercent,
-                    improvementPercent > 0 ? "faster" : "slower",
-                    statisticallySignificant ? "YES" : "NO"
-            );
-        }
-
-    }
-
-
-    /**
-     * Compare two sets of benchmark results
-     */
-    public List<CompareResult> compareResults(List<BenchmarkResult> baselineResults,
-                                                    List<BenchmarkResult> optimisedResults) {
-        List<CompareResult> comparisons = new ArrayList<>();
-
-        for (BenchmarkResult baseline : baselineResults) {
-            for (BenchmarkResult optimised : optimisedResults) {
-                if (baseline.fileSizeMB == optimised.fileSizeMB) {
-                    CompareResult comparison = new CompareResult(baseline, optimised);
                     comparisons.add(comparison);
-                    Log.d(TAG, comparison.toString());
+                    break;
                 }
             }
         }
 
         return comparisons;
     }
-}
+
+
+  }
+

@@ -9,6 +9,7 @@ import javax.crypto.*;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+// TODO: Edit algorithm specifications
 /**
  * Optimised AES-256-GCM with intelligent buffering and cipher reuse
  *
@@ -39,17 +40,8 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
     private static final int TAG_LENGTH = 128; // 16 bytes for authentication tag
     private static final int KEY_LENGTH_BYTES = KEY_SIZE / 8; // 32 bytes
 
-    // Using Cipher instance pool for optimisation (thread-safe via ThreadLocal)
-    // Each thread gets its own cipher instance to avoid synchronisation overhead
-    // This eliminates the expensive getInstance() + provider lookup on every operation
-    private static final ThreadLocal<Cipher> cipherPool = ThreadLocal.withInitial(() -> {
-        try {
-            return Cipher.getInstance(TRANSFORMATION);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to create cipher instance for pool", e);
-            return null;
-        }
-    });
+    // Output buffer for flash alignment 16KB for optimal write performance
+    private static final int OUTPUT_BUFFER_SIZE = 16 * 1024;
 
     // Adaptive buffer sizing based on device memory class
     // Low-End devices = 2MB | Mid-Range = 4MB | High-End = 8MB
@@ -92,9 +84,9 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
             if (am != null) {
                 int memoryClass = am.getMemoryClass(); // MB of RAM that the app can use
 
-                if (memoryClass >= 256) {
+                if (memoryClass >= 512) {
                     return 8 * 1024 * 1024; // 8MB for high-end devices
-                } else if (memoryClass >= 128) {
+                } else if (memoryClass >= 256) {
                     return 4 * 1024 * 1024; // 4MB for mid range devices
                 } else {
                     return 2 * 1024 * 1024; // 2MB for old devices
@@ -157,27 +149,20 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
 
         // Pre-allocated buffer that is reused
         // Eliminates repeated allocation/deallocation overhead
-
         byte[] buffer = new byte[optimalBufferSize];
 
+        FileInputStream fis = null;
+        FileOutputStream fos = null;
+        BufferedOutputStream bos = null;
+        CipherOutputStream cos = null;
 
-        try (FileInputStream inputStream = new FileInputStream(inputFile);
-             // FileOutputStream is wrapped with BufferedOutputStream to align flash writes
-             // This optimises write operation to 16KB blocks aligned with flash memory
-            BufferedOutputStream bufferedOutput = new BufferedOutputStream(new FileOutputStream(outputFile), 16 * 1024)) {
-
+        try {
             // Generate secure IV
             byte[] iv = new byte[IV_LENGTH];
             secureRandom.nextBytes(iv);
 
-            // Getting cipher from thread-local pool to eliminate costly getInstance call
-            Cipher cipher = cipherPool.get();
-            if (cipher == null) {
-                Log.e(TAG, "Failed to get cipher from pool");
-                return false;
-            }
-
             // Initialise cipher with GCM parameters for encryption
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
             SecretKey secretKey = new SecretKeySpec(key, ALGORITHM);
             GCMParameterSpec parameterSpec = new GCMParameterSpec(TAG_LENGTH, iv);
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, parameterSpec);
@@ -187,27 +172,34 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
                 cipher.updateAAD(additionalData);
             }
 
+            // Setup streams in order
+            fis = new FileInputStream(inputFile);
+            fos = new FileOutputStream(outputFile);
+            bos = new BufferedOutputStream(fos, OUTPUT_BUFFER_SIZE);
+
             // Write IV to output file for decryption
             // Cannot recover key from IV so is safe to store in plaintext
-            bufferedOutput.write(iv);
+            bos.write(iv);
+            cos = new CipherOutputStream(bos, cipher);
 
+            // Stream data
             int bytesRead;
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                byte[] encryptedChunk = cipher.update(buffer, 0, bytesRead);
-                if (encryptedChunk != null && encryptedChunk.length > 0) {
-                    bufferedOutput.write(encryptedChunk);
-                }
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                cos.write(buffer, 0, bytesRead);
                 bytesProcessed += bytesRead;
             }
 
-            // Finalise encryption and write authentication tag
-            byte[] finalBlock = cipher.doFinal();
-            if (finalBlock != null && finalBlock.length > 0) {
-                bufferedOutput.write(finalBlock);
-            }
+            // Close CipherOutputStream to finalise encryption
+            cos.close();
+            cos = null; // Prevent double-close in finally block
 
-            // Buffered output flushed to ensure all data is written to disk
-            bufferedOutput.flush();
+            // Flush and close remaining streams
+            bos.close();
+            bos = null;
+            fos.close();
+            fos = null;
+            fis.close();
+            fis = null;
 
             // Performance logging for optimisation validation
             long endTime = System.nanoTime();
@@ -221,14 +213,20 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
         } catch (Exception e) {
             Log.e(TAG, "Encryption failed for " + inputFile.getName(), e);
 
-            // Clean up partial output file if it fails to encrypt
+            // Clean up partial output on failure
             if (outputFile.exists() && !outputFile.delete()) {
-                Log.w(TAG, "Failed to delete partial output file: " + outputFile.getName());
+                Log.w(TAG, "Failed to delete partial output: " + outputFile.getName());
             }
             return false;
+
         } finally {
-            // Buffer must be zero out to prevent key material leakage
-            // Even if keys are not stored in the buffer it adds to the defense in depth
+            // Guaranteed cleanup
+            closeQuietly(cos);
+            closeQuietly(bos);
+            closeQuietly(fos);
+            closeQuietly(fis);
+
+            // Zero out buffer
             java.util.Arrays.fill(buffer, (byte) 0);
         }
     }
@@ -247,83 +245,79 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
 
         byte[] buffer = new byte[optimalBufferSize];
 
-        try (FileInputStream inputStream = new FileInputStream(inputFile);
-            BufferedOutputStream bufferedOutput = new BufferedOutputStream(new FileOutputStream(outputFile), 16*1024)){
+        FileInputStream fis = null;
+        CipherInputStream cis = null;
+        FileOutputStream fos = null;
+        BufferedOutputStream bos = null;
+
+        try {
 
             // Read IV from beginning of encrypted file
+            fis = new FileInputStream(inputFile);
             byte[] iv = new byte[IV_LENGTH];
-            int bytesRead = inputStream.read(iv);
-            if (bytesRead != IV_LENGTH) {
+            int ivBytesRead = fis.read(iv);
+            if (ivBytesRead != IV_LENGTH) {
                 throw new SecurityException("Invalid encrypted file format: IV missing or incomplete");
             }
 
-            // Getting cipher from pool
-            Cipher cipher = cipherPool.get();
-            if (cipher == null) {
-                Log.e(TAG, "Failed to get cipher from pool");
-                return false;
-            }
-
-            // Initialise cipher for decryption with the same parameters as encryption
+            // Initialise cipher with GCM parameters for encryption
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
             SecretKey secretKey = new SecretKeySpec(key, ALGORITHM);
             GCMParameterSpec parameterSpec = new GCMParameterSpec(TAG_LENGTH, iv);
             cipher.init(Cipher.DECRYPT_MODE, secretKey, parameterSpec);
 
-            // Add same Additional Authenticated Data
+            // Add additional authenticated data if provided
             if (additionalData != null) {
                 cipher.updateAAD(additionalData);
             }
 
-            // Processing encrypted data in large chunks
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                byte[] decryptedChunk = cipher.update(buffer, 0, bytesRead);
-                if (decryptedChunk != null && decryptedChunk.length > 0) {
-                    bufferedOutput.write(decryptedChunk);
-                }
+            // Setup streams - CipherInputStream handles decryption
+            cis = new CipherInputStream(fis, cipher);
+            fos = new FileOutputStream(outputFile);
+            bos = new BufferedOutputStream(fos, OUTPUT_BUFFER_SIZE);
+
+            // Stream data
+            int bytesRead;
+            while ((bytesRead = cis.read(buffer)) != -1) {
+                bos.write(buffer, 0, bytesRead);
                 bytesProcessed += bytesRead;
             }
 
-            // Finalise decryption and verify authentication tag
-            // If tag doesn't match the doFinal() will throw AEADBadTagException
-            // Meaning the file was tempered with or corrupted
-            byte[] finalBlock = cipher.doFinal();
-            if (finalBlock != null && finalBlock.length > 0) {
-                bufferedOutput.write(finalBlock);
-            }
-
-            bufferedOutput.flush();
+            // Close in correct order
+            cis.close();
+            cis = null;
+            bos.close();
+            bos = null;
+            fos.close();
+            fos = null;
 
             // Performance logging
             long endTime = System.nanoTime();
-            double elapsedMS = (endTime - startTime) / 1_000_000.0;
-            double throughputMBs = (bytesProcessed / 1024.0 / 1024.0) / (elapsedMS / 1000.0);
+            double elapsedMs = (endTime - startTime) / 1_000_000.0;
+            double throughputMBps = (bytesProcessed / 1024.0 / 1024.0) / (elapsedMs / 1000.0);
 
-            Log.d(TAG, String.format("Decryption complete: %.2f MB in %.2f ms (%.2f MB/s)", bytesProcessed / 1024.0 / 1024.0, elapsedMS, throughputMBs));
+            Log.d(TAG, String.format("Decryption: %.2f MB in %.2f ms (%.2f MB/s)",
+                    bytesProcessed / 1024.0 / 1024.0, elapsedMs, throughputMBps));
 
             return true;
 
-        } catch (javax.crypto.AEADBadTagException e) {
-            // Special handling for authentication failure
-            // This marks a SECURITY EVENT where the file was tampered with or wrong key used
-            Log.e(TAG, "SECURITY ALERT: Authentication tag verification failed! " + "File may be corrupted or tampered with: " + inputFile.getName(), e);
-
-            // Delete potentially malicious output
-            if (outputFile.exists() && !outputFile.delete()) {
-                Log.w(TAG, "Failed to delete corrupted output file: " + outputFile.getName());
-            }
-
-            return false;
-
         } catch (Exception e) {
-            Log.e(TAG, "Decryption failed for " + outputFile.getName(), e);
+            Log.e(TAG, "Decryption failed for " + inputFile.getName(), e);
 
-            // Clean up failure
+            // Clean up on failure
             if (outputFile.exists() && !outputFile.delete()) {
-                Log.w(TAG, "Failed to delete partial output file: " + outputFile.getName());
+                Log.w(TAG, "Failed to delete partial output: " + outputFile.getName());
             }
             return false;
+
         } finally {
-            // Zero out the buffer for security
+            // Guaranteed cleanup
+            closeQuietly(cis);
+            closeQuietly(bos);
+            closeQuietly(fos);
+            closeQuietly(fis);
+
+            // Zero out buffer
             java.util.Arrays.fill(buffer, (byte) 0);
         }
     }
@@ -331,7 +325,13 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
 
     // Clean up resources when algorithm instance is no longer needed
     // This is called when an algorithm is switched or shutting down encryption subsystem
-    public static void cleanup() {
-        cipherPool.remove();
+    public static void closeQuietly(Closeable closeable) {
+        if (closeable != null) {
+            try {
+                closeable.close();
+            } catch (IOException e) {
+                Log.w(TAG, "Error closing stream", e);
+            }
+        }
     }
 }

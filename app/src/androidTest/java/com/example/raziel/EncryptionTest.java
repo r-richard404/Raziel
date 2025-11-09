@@ -10,6 +10,7 @@ import static org.junit.Assert.*;
 import android.content.Context;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.filters.LargeTest;
 import androidx.test.platform.app.InstrumentationRegistry;
 
 import com.example.raziel.core.benchmarking.EncryptionBenchmark;
@@ -30,6 +31,7 @@ import java.util.List;
  * @see <a href="http://d.android.com/tools/testing">Testing documentation</a>
  */
 @RunWith(AndroidJUnit4.class)
+@LargeTest
 public class EncryptionTest {
 
     private Context context;
@@ -64,16 +66,19 @@ public class EncryptionTest {
         return true;
     }
 
-    private String generateLargeContent(int sizeBytes) {
-        StringBuilder sb = new StringBuilder();
-        String pattern = "This is test data for large file encryption " +
-                "This is some meaningful data that will fill this file, to expand it to a bigger size";
+    private File createLargeTestFile(String filename, int sizeBytes) throws Exception {
+        File file = new File(context.getFilesDir(), filename);
+        byte[] pattern = ("Test data\n").getBytes();
 
-        while (sb.length() < sizeBytes) {
-            sb.append(pattern);
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            int written = 0;
+            while (written < sizeBytes) {
+                int toWrite = Math.min(pattern.length, sizeBytes - written);
+                fos.write(pattern, 0, toWrite);
+                written += toWrite;
+            }
         }
-
-        return sb.substring(0, sizeBytes);
+        return file;
     }
 
 
@@ -146,7 +151,7 @@ public class EncryptionTest {
     public void test_ChaCha20_EncryptionDecryption_Operations() throws Exception {
         // Get ChaCha20 algorithm
         InterfaceEncryptionAlgorithm chacha = encryptionManager.getAlgorithmByName("ChaCha20");
-        assertNotNull("ChaCha20 should be available", chacha);
+        assertNotNull("ChaCha20-Poly1304 should be available", chacha);
 
         // Encrypt the test file
         EncryptionResult encryptResult = encryptionManager.encryptFile(testFile, chacha, "test_chacha.enc");
@@ -188,30 +193,22 @@ public class EncryptionTest {
         EncryptionResult result4 = encryptionManager.encryptFile(testFile, chacha, "test_file4_iv_chacha.enc");
 
         // Read first 12 bytes (IV) from both encrypted files
-        byte[] iv1 = new byte[12];
-        byte[] iv2 = new byte[12];
-        byte[] iv3 = new byte[12];
-        byte[] iv4 = new byte[12];
-
-        try (FileInputStream fis1 = new FileInputStream(result1.getOutputFile())) {
-            fis1.read();
-        }
-        try (FileInputStream fis2 = new FileInputStream(result2.getOutputFile())) {
-            fis2.read();
-        }
-
-        try (FileInputStream fis3 = new FileInputStream(result3.getOutputFile())) {
-            fis3.read();
-        }
-        try (FileInputStream fis4 = new FileInputStream(result4.getOutputFile())) {
-            fis4.read();
-        }
+        byte[] iv1 = readFileBytes(result1.getOutputFile());
+        byte[] iv2 = readFileBytes(result2.getOutputFile());
+        byte[] iv3 = readFileBytes(result3.getOutputFile());
+        byte[] iv4 = readFileBytes(result4.getOutputFile());
 
         // IVs must be different AES256
         assertFalse("AES256 IVs must be unique for each encryption", Arrays.equals(iv1, iv2));
 
         // IVs must be different ChaCha20
         assertFalse("ChaCha20 IVs must be unique for each encryption", Arrays.equals(iv3, iv4));
+
+        //IVs must be different between algorithms
+        assertFalse("Algorithm IVs must be unique for each encryption with each algorithm", Arrays.equals(iv1, iv3));
+        assertFalse("Algorithm IVs must be unique for each encryption with each algorithm", Arrays.equals(iv2, iv4));
+        assertFalse("Algorithm IVs must be unique for each encryption with each algorithm", Arrays.equals(iv1, iv4));
+        assertFalse("Algorithm IVs must be unique for each encryption with each algorithm", Arrays.equals(iv2, iv3));
 
         // Clean up
         result1.getOutputFile().delete();
@@ -322,14 +319,14 @@ public class EncryptionTest {
             if (resultChaCha.isSuccess()) {
                 resultChaCha.getOutputFile().delete();
             }
-        }s
+        }
 
         // Check metrics
         PerformanceMetrics.PerformanceSnapshot metrics = encryptionManager.getPerformanceMetrics();
 
         assertEquals("AES256 and ChaCha20 Should have recorded 5 operations each, totaling 10 operations", 10, metrics.totalOperations);
 
-        assertEquals("All operations should have succeeded", 100.0, metrics.getSuccessRate());
+        assertEquals("All operations should have succeeded", 1.0, metrics.getSuccessRate(), 0.0001);
 
         assertTrue("Should have metrics for AES256", metrics.algorithmMetrics.containsKey("AES") ||
                 metrics.algorithmMetrics.values().stream().anyMatch(m -> m.algorithmName.contains("AES")));
@@ -356,12 +353,9 @@ public class EncryptionTest {
         assertFalse("ChaCha20 Benchmark should produce results", resultsChaCha.isEmpty());
 
         for (EncryptionBenchmark.BenchmarkResult result : resultsAES) {
-            assertTrue("AES256 Mean time should be positive", result.meanTimeMS > 0);
+            assertTrue("AES256 Mean time should be positive", result.averageTimeMs > 0);
             assertTrue("AES256 Throughput should be positive", result.throughputMBps > 0);
-            assertTrue("AES256 Benchmark should have run multiple iterations", result.iterations >= 20);
-            assertTrue("AES256 CV (Coefficient Variation) should be reasonable", result.coefficientOfVariation < 50.0);
-
-            assertNotNull("AES256 should have reproducibility assessment", result.getReproducibilityAssessment());
+            assertTrue("AES256 Benchmark should have run multiple iterations", result.numRuns > 1);
         }
     }
 
@@ -376,43 +370,67 @@ public class EncryptionTest {
         List<EncryptionBenchmark.BenchmarkResult> aesResults = benchmark.runBenchmark(aes);
         List<EncryptionBenchmark.BenchmarkResult> chachaResults = benchmark.runBenchmark(chacha);
 
-        List<EncryptionBenchmark.CompareResult> comparisons = benchmark.compareResults(aesResults, chachaResults);
+        List<String> comparisons = EncryptionBenchmark.compareAlgorithms(aesResults, chachaResults);
 
+        assertNotNull("Comparison results should not be null", comparisons);
+        assertFalse("Comparison results should not be empty", comparisons.isEmpty());
 
     }
 
-    // Large file handling
+    // Large file handling AES256
     @Test
-    public void test_LargeFile_Handling() throws Exception {
-        // Create 100MB test file
-        File largetFile = createTestFile("large_test.txt", generateLargeContent(100 * 1024 * 1024));
+    public void test_LargeFile_Handling_AES256() throws Exception {
+        // Create 40MB test file for AES256
+        File largetFile = createLargeTestFile("large_test_file", 60 * 1024 * 1024);
 
         try {
             InterfaceEncryptionAlgorithm aes = encryptionManager.getAlgorithmByName("AES");
-            InterfaceEncryptionAlgorithm chacha = encryptionManager.getAlgorithmByName("ChaCha20");
 
             // Encrypt
             EncryptionResult encryptResultAES = encryptionManager.encryptFile(largetFile, aes, "large_test_aes.enc");
-            EncryptionResult encryptResultChaCha = encryptionManager.encryptFile(largetFile, chacha, "large_test_chacha.enc");
 
             assertTrue("AES256 Large File Encryption should succeed", encryptResultAES.isSuccess());
-            assertTrue("ChaCha20 Large File Encryption should succeed", encryptResultChaCha.isSuccess());
 
             // Decrypt
             EncryptionResult decryptResultAES = encryptionManager.decryptFile(encryptResultAES.getOutputFile(), aes, "large_file_aes_decrypted.txt");
-            EncryptionResult decryptResultChaCha = encryptionManager.decryptFile(encryptResultChaCha.getOutputFile(), chacha, "large_file_chacha_decrypted.txt");
 
             assertTrue("AES256 Large File Decryption should succeed", decryptResultAES.isSuccess());
-            assertTrue("ChaCha20 Large File Decryption should succeed", decryptResultChaCha.isSuccess());
 
             // Verify sizes match
             assertEquals("AES256 File sizes should match", largetFile.length(), decryptResultAES.getOutputFile().length());
-            assertEquals("ChaCha20 File sizes should match", largetFile.length(), decryptResultChaCha.getOutputFile().length());
 
-            // Clean up
+            // Clean ups
             encryptResultAES.getOutputFile().delete();
             decryptResultAES.getOutputFile().delete();
 
+        } finally {
+            largetFile.delete();
+        }
+    }
+
+    // Large file handling ChaCha20
+    @Test
+    public void test_LargeFile_Handling_ChaCha20() throws Exception {
+        // Create 50MB test file for ChaCha20
+        File largetFile = createLargeTestFile("large_test_file", 60 * 1024 * 1024);
+
+        try {
+            InterfaceEncryptionAlgorithm chacha = encryptionManager.getAlgorithmByName("ChaCha20");
+
+            // Encrypt
+            EncryptionResult encryptResultChaCha = encryptionManager.encryptFile(largetFile, chacha, "large_test_chacha.enc");
+
+            assertTrue("ChaCha20 Large File Encryption should succeed", encryptResultChaCha.isSuccess());
+
+            // Decrypt
+            EncryptionResult decryptResultChaCha = encryptionManager.decryptFile(encryptResultChaCha.getOutputFile(), chacha, "large_file_chacha_decrypted.txt");
+
+            assertTrue("ChaCha20 Large File Decryption should succeed", decryptResultChaCha.isSuccess());
+
+            // Verify sizes match
+            assertEquals("ChaCha20 File sizes should match", largetFile.length(), decryptResultChaCha.getOutputFile().length());
+
+            // Clean ups
             encryptResultChaCha.getOutputFile().delete();
             decryptResultChaCha.getOutputFile().delete();
 
@@ -464,7 +482,7 @@ public class EncryptionTest {
             assertFalse("ChaCha20 Should fail for decryption without encryption key", decryptResultChaCha.isSuccess());
 
         } catch (Exception e) {
-            fail("Should not throw exception: " + e.getMessage());
+            fail("Should not throw exception: " + e.getMessage());;
 
         } finally {
             dummyFile.delete();

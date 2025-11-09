@@ -266,13 +266,13 @@ public class EncryptionManager {
     public void cleanup() {
         Log.d(TAG, "Cleaning up EncryptionManager resources");
         // Clean up each algorithm's resources
-        for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
-            if (algorithm instanceof AES_256) {
-                AES_256.cleanup();
-            } else if (algorithm instanceof ChaCha20_Poly1305) {
-                ChaCha20_Poly1305.cleanup();
-            }
-        }
+//        for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
+//            if (algorithm instanceof AES_256) {
+//                AES_256.closeQuietly();
+//            } else if (algorithm instanceof ChaCha20_Poly1305) {
+//                ChaCha20_Poly1305.cleanup();
+//            }
+//        }
 
         // Clear stored keys
         if (lastEncryptionKey != null) {

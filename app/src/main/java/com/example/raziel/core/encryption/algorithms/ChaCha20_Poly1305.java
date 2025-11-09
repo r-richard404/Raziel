@@ -4,17 +4,24 @@ import android.content.Context;
 import android.util.Log;
 
 import java.io.BufferedOutputStream;
+import java.io.Closeable;
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.Buffer;
 import java.security.SecureRandom;
 
 import javax.crypto.Cipher;
+import javax.crypto.CipherInputStream;
+import javax.crypto.CipherOutputStream;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+// TODO: Edit algorithm specifications
 /**
  * ChaCha20-Poly1305 implementation for software-optimised encryption
  *
@@ -50,16 +57,7 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
     private static final int NONCE_LENGTH = 12; // 96 bits for ChaCha20-Poly1305
     private static final int TAG_LENGTH = 128; // 16 bytes for Poly1305
     private static final int KEY_LENGTH_BYTES = KEY_SIZE / 8; // 32 bytes
-
-    // Cipher pool for reuse (same ThreadLocal pattern as AES)
-    private static final ThreadLocal<Cipher> cipherPool = ThreadLocal.withInitial(() -> {
-        try {
-            return Cipher.getInstance(TRANSFORMATION);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to create cipher instance for pool", e);
-            return null;
-        }
-    });
+    private static final int OUTPUT_BUFFER_SIZE = 16 * 1024;
 
     // Adaptive buffer sizing (same strategy as AES)
     private final int optimalBufferSize;
@@ -93,9 +91,9 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
             if (am != null) {
                 int memoryClass = am.getMemoryClass();
 
-                if (memoryClass >= 256) {
+                if (memoryClass >= 512) {
                     return 8 * 1024 * 1024; // 8MB for high-end devices
-                } else if (memoryClass >= 128) {
+                } else if (memoryClass >= 256) {
                     return 4 * 1024 * 1024; // 4MB for mid range devices
                 } else {
                     return 2 * 1024 * 1024; // 2MB for low-end devices
@@ -109,8 +107,7 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
     }
 
     @Override
-    public String getAlgorithmName() {
-        return "ChaCha20-Poly1305";
+    public String getAlgorithmName() { return ALGORITHM;
     }
 
     @Override
@@ -137,6 +134,7 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
         }
     }
 
+
     @Override
     public boolean encryptFile(File inputFile, File outputFile, byte[] key, byte[] additionalData) {
         // Input validation
@@ -153,21 +151,18 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
         // Pre-allocated buffer
         byte[] buffer = new byte[optimalBufferSize];
 
-        try(FileInputStream inputStream = new FileInputStream(inputFile);
-            BufferedOutputStream bufferedOutput = new BufferedOutputStream(new FileOutputStream(outputFile), 16 * 1024)) {
+        FileInputStream fis = null;
+        FileOutputStream fos = null;
+        BufferedOutputStream bos = null;
+        CipherOutputStream cos = null;
 
+        try {
             // Generate secure nonce (12 bytes for ChaCha20-Poly1305
             byte[] nonce = new byte[NONCE_LENGTH];
             secureRandom.nextBytes(nonce);
 
-            // Get cipher from pool
-            Cipher cipher = cipherPool.get();
-            if (cipher == null) {
-                Log.e(TAG, "Failed to get cipher from pool");
-                return false;
-            }
-
             // Initialise cipher for ChaCha20-Poly1305
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
             SecretKey secretKey = new SecretKeySpec(key, ALGORITHM);
             IvParameterSpec ivSpec = new IvParameterSpec(nonce);
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivSpec);
@@ -177,26 +172,33 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
                 cipher.updateAAD(additionalData);
             }
 
+            // Setup Streaming encryption
+            fis = new FileInputStream(inputFile);
+            fos = new FileOutputStream(outputFile);
+            bos = new BufferedOutputStream(fos, OUTPUT_BUFFER_SIZE);
+
             // Write nonce to output file (needed for decryption)
-            bufferedOutput.write(nonce);
+            bos.write(nonce);
+
+            // CipherOutputStream handles encryption
+            cos = new CipherOutputStream(bos, cipher);
 
             // Encrypt in large chunks
             int bytesRead;
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                byte[] encryptedChunk = cipher.update(buffer, 0, bytesRead);
-                if (encryptedChunk != null && encryptedChunk.length > 0) {
-                    bufferedOutput.write(encryptedChunk);
-                }
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                cos.write(buffer, 0, bytesRead);
                 bytesProcessed += bytesRead;
             }
 
-            // Finalise encryption and write authentication tag
-            byte[] finalBlock = cipher.doFinal();
-            if (finalBlock != null && finalBlock.length > 0) {
-                bufferedOutput.write(finalBlock);
-            }
-
-            bufferedOutput.flush();
+            // Close in order to finalise encryption
+            cos.close();
+            cos = null;
+            bos.close();
+            bos = null;
+            fos.close();
+            fos = null;
+            fis.close();
+            fis = null;
 
             // Performance logging
             long endTime = System.nanoTime();
@@ -207,6 +209,7 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
                     bytesProcessed / 1024.0 / 1024.0, elapsedMS, throghputMBs));
 
             return true;
+
         } catch (Exception e) {
             Log.e(TAG, "Encryption failed for " + inputFile.getName(), e);
 
@@ -217,10 +220,15 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
             return false;
 
         } finally {
+            closeQuietly(cos);
+            closeQuietly(bos);
+            closeQuietly(fos);
+            closeQuietly(fis);
             // Zero out buffer for security
             java.util.Arrays.fill(buffer, (byte) 0);
         }
     }
+
 
     @Override
     public boolean decryptFile(File inputFile, File outputFile, byte[] key, byte[] additionalData) {
@@ -236,24 +244,22 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
 
         byte[] buffer = new byte[optimalBufferSize];
 
-        try (FileInputStream inputStream = new FileInputStream(inputFile);
-            BufferedOutputStream bufferedOutput = new BufferedOutputStream(new FileOutputStream(outputFile), 16 * 1024)) {
+        FileInputStream fis = null;
+        CipherInputStream cis = null;
+        FileOutputStream fos = null;
+        BufferedOutputStream bos = null;
 
+        try {
             // Read nonce from beginning of encrypted file
+            fis = new FileInputStream(inputFile);
             byte[] nonce = new byte[NONCE_LENGTH];
-            int bytesRead = inputStream.read(nonce);
-            if (bytesRead != NONCE_LENGTH) {
+            int nonceBytesRead = fis.read(nonce);
+            if (nonceBytesRead != NONCE_LENGTH) {
                 throw new SecurityException("Invalid encrypted file format: nonce missing or incomplete");
             }
 
-            // Get cipher from pool
-            Cipher cipher = cipherPool.get();
-            if (cipher == null) {
-                Log.e(TAG, "Failed to get cipher from pool");
-                return false;
-            }
-
             // Initialise cipher for decryption
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
             SecretKey secretKey = new SecretKeySpec(key, ALGORITHM);
             IvParameterSpec ivSpec = new IvParameterSpec(nonce);
             cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec);
@@ -263,22 +269,25 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
                 cipher.updateAAD(additionalData);
             }
 
-            // Decrypt in large chunks
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                byte[] decryptedChunk = cipher.update(buffer, 0, bytesRead);
-                if (decryptedChunk != null && decryptedChunk.length > 0) {
-                    bufferedOutput.write(decryptedChunk);
-                }
+            // Setup streaming decryption
+            cis = new CipherInputStream(fis, cipher);
+            fos = new FileOutputStream(outputFile);
+            bos = new BufferedOutputStream(fos, OUTPUT_BUFFER_SIZE);
+
+            // Stream data
+            int bytesRead;
+            while ((bytesRead = cis.read(buffer)) != -1) {
+                bos.write(buffer, 0, bytesRead);
                 bytesProcessed += bytesRead;
             }
 
-            // Finalise decryption and verify authentication tag
-            byte[] finalBlock = cipher.doFinal();
-            if (finalBlock != null && finalBlock.length > 0) {
-                bufferedOutput.write(finalBlock);
-            }
-
-            bufferedOutput.flush();
+            // Close in order to finalise decryption
+            cis.close();
+            cis = null;
+            bos.close();
+            bos = null;
+            fos.close();
+            fos = null;
 
             // Performance logging
             long endTime = System.nanoTime();
@@ -290,18 +299,6 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
 
             return true;
 
-        } catch (javax.crypto.AEADBadTagException e) {
-            // Authentication failure - file tampered or wrong key
-            Log.e(TAG, "SECURITY ALERT: Authentication tag verification failed! " +
-                    "File may be corrupted or tampered with: " + inputFile.getName(), e);
-
-            // Delete potentially malicious output
-            if (outputFile.exists() && !outputFile.delete()) {
-                Log.w(TAG, "Failed to delete corrupted output file: " + outputFile.getName());
-            }
-
-            return false;
-
         } catch (Exception e) {
             Log.e(TAG, "Decryption failed for " + inputFile.getName(), e);
 
@@ -312,6 +309,11 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
             return false;
 
         } finally {
+            closeQuietly(cis);
+            closeQuietly(bos);
+            closeQuietly(fos);
+            closeQuietly(fis);
+
             // Zero out buffer for security
             java.util.Arrays.fill(buffer, (byte) 0);
         }
@@ -321,7 +323,13 @@ public class ChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
     /**
      * Clean up resources when algorithm instance is no longer needed
      */
-    public static void cleanup() {
-        cipherPool.remove();
+    private void closeQuietly(Closeable closeable) {
+        if (closeable != null) {
+            try  {
+                closeable.close();
+            } catch (IOException e) {
+                Log.w(TAG, "Error closing stream", e);
+            }
+        }
     }
 }
