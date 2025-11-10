@@ -1,5 +1,7 @@
 package com.example.raziel.core.encryption.algorithms;
 
+import com.google.crypto.tink.KeysetHandle;
+
 import java.io.File;
 
 /* Common interface for all encryption algorithms following SOLID principles
@@ -19,14 +21,30 @@ public interface InterfaceEncryptionAlgorithm {
     String getSecurityStrength();
 
     // Encrypts a file using the specified key
-    boolean encryptFile(File inputFile, File outputFile, byte[] key, byte[] additionalData);
+    //boolean encryptFile(File inputFile, File outputFile, byte[] key, byte[] additionalData);
 
     // Decrypts a file using the specified key
-    boolean decryptFile(File inputFile, File outputFile, byte[] key, byte[] additionalData);
+    //boolean decryptFile(File inputFile, File outputFile, byte[] key, byte[] additionalData);
 
     // Generate a cryptographically secure key for this algorithm
+
+    // Encrypt file using Tink keyset
+    boolean encryptFile(File inputFile, File outputFile, KeysetHandle keysetHandle, byte[] associatedData);
+
+    // Decrypt file using Tink keyset
+    boolean decryptFile(File inputFile, File outputFile, KeysetHandle keysetHandle, byte[] associatedData);
+
     byte[] generateKey();
 
-    // Get the required key length in bytes
-    int getKeyLength();
+    // Get optimal segment size for this algorithm
+    int getOptimalSegmentSize();
+
+    // Add progress callback support
+    interface ProgressCallback {
+        void onProgressUpdate(long bytesProcessed, long totalBytes);
+    }
+
+    void setProgressCallback(ProgressCallback callback);
+
+
 }

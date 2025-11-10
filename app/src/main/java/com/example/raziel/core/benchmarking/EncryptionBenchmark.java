@@ -4,39 +4,22 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.util.Log;
 
+import com.example.raziel.core.encryption.KeyManager;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
+import com.google.crypto.tink.KeyTemplate;
+import com.google.crypto.tink.KeyTemplates;
+import com.google.crypto.tink.KeysetHandle;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 
 /**
  * Performance benchmarking framework for encryption algorithms
- *
- * Implements granular measurement methodology:
- * - Statistical validation with multiple iterations
- * - Warmup periods to eliminate JIT compilation effects
- * - Percentile analysis (P50, P90, P95, P99)
- * - Throughput and latency measurement
- * - Memory profiling integration
- *
- * Measurement Principles:
- * - Use System.nanoTime() for high-resolution timing
- * - Run minimum 20 iterations for statistical validity
- * - Calculate coefficient of variation (CV) for reproducibility
- * - Report mean +- standard deviation with percentiles
- * - Measure before and after optimizations with t-test significance
- *
- * Benchmarking useful for:
- * - Validating that optimisations deliver real improvements
- * - Preventing placebo effects and measurement bias
- * - Enabling data-driven decision making
- * - Catching performance regressions early
- * - Quantifying trade-ofs between algorithms
  */
 public class EncryptionBenchmark {
     private static final String TAG = "EncryptionBenchmark";
@@ -48,19 +31,17 @@ public class EncryptionBenchmark {
     private static final int[] TEST_FILE_HARDWARE_SIZES_MB = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500}; // testing on S23 Ultra hardware
 
     private final Context context;
+    private final KeyManager keyManager;
 
     public EncryptionBenchmark(Context context) {
         this.context = context;
+        this.keyManager = new KeyManager(context);
     }
 
-
     /**
-     * Result class holding granular benchmark metrics
+     * Result class holding benchmark metrics
      */
-
     public static class BenchmarkResult {
-
-
         public final String algorithmName;
         public final int fileSizeMB;
         public final double averageTimeMs;
@@ -78,7 +59,6 @@ public class EncryptionBenchmark {
             this.throughputMBps = fileSizeMB / averageTimeSec;
         }
 
-
             @SuppressLint("DefaultLocale")
             @Override
             public String toString() {
@@ -86,10 +66,6 @@ public class EncryptionBenchmark {
                         algorithmName, fileSizeMB, throughputMBps, averageTimeMs, numRuns);
             }
         }
-
-
-
-
 
     /**
      * Create a test file with specified size in MB
@@ -102,8 +78,7 @@ public class EncryptionBenchmark {
             // Create repeating text pattern for a more realistic input rather than pure random
             String pattern = "This is benchmark test data for Raziel encryption performance testing. " +
                     "The quick brown fox jumps over the lazy dog. " +
-                    "Pack my box with five dozen liquor jugs. " +
-                    "How vexingly quick draft zebras jump! ";
+                    "Pack my box with five dozen liquor jugs. ";
 
             byte[] patternBytes = pattern.getBytes();
             long targetBytes = (long) sizeMB * 1024 * 1024;
@@ -119,18 +94,8 @@ public class EncryptionBenchmark {
         return testFile;
     }
 
-
     /**
-     * Run granular benchmark for an encryption algorithm
-     *
-     * Process:
-     * 1. Create test files of various sizes
-     * 2. Warmup period (3 iterations) to stabilise JIT compilation
-     * 3. Measurement period (20 iterations) for statistical validity
-     * 4. Calculate metrics and assess reproducibility
-     *
-     * @param algorithm Algorithm to benchmark
-     * @return List of benchmark result for each file size
+     * Run benchmark for an encryption algorithm
      */
     public List<BenchmarkResult> runBenchmark(InterfaceEncryptionAlgorithm algorithm) {
         Log.d(TAG, "Starting benchmark for " + algorithm.getAlgorithmName());
@@ -147,12 +112,10 @@ public class EncryptionBenchmark {
                 int successfulRuns = 0;
 
                 for (int run = 0; run < NUM_RUNS; run++) {
-                    // Generate key
-                    byte[] key = algorithm.generateKey();
-                    if (key == null) {
-                        Log.e(TAG, "Key generation failed");
-                        continue;
-                    }
+
+                    // Create keyset for this run
+                    KeyTemplate keyTemplate = KeyTemplates.get("AES256_GCM_HKDF_4KB");
+                    KeysetHandle keysetHandle = keyManager.createStreamingKeysetHandle(keyTemplate.toParameters());
 
                     // Create output file
                     File outputFile = new File(context.getFilesDir(),
@@ -160,7 +123,7 @@ public class EncryptionBenchmark {
 
                     // Measure encryption time
                     long startTime = System.currentTimeMillis();
-                    boolean success = algorithm.encryptFile(testFile, outputFile, key, null);
+                    boolean success = algorithm.encryptFile(testFile, outputFile, keysetHandle, null);
                     long endTime = System.currentTimeMillis();
 
                     if (success) {
@@ -174,9 +137,6 @@ public class EncryptionBenchmark {
                     if (outputFile.exists()) {
                         outputFile.delete();
                     }
-
-                    // Zero out key
-                    java.util.Arrays.fill(key, (byte) 0);
 
                     // Small delay between runs to prevent thermal throttling
                     if (run < NUM_RUNS - 1) {
@@ -196,7 +156,7 @@ public class EncryptionBenchmark {
                 // Clean up test file
                 testFile.delete();
 
-            } catch (Exception e) {
+            } catch (GeneralSecurityException | IOException | InterruptedException e) {
                 Log.e(TAG, "Benchmark failed for " + sizeMB + "MB", e);
             }
         }
@@ -207,7 +167,6 @@ public class EncryptionBenchmark {
 
     /**
      * Compare two algorithms and calculate improvement percentage
-     * Using statistical t-test to determine if improvement is significant
      */
     public static List<String> compareAlgorithms(List<BenchmarkResult> algorithm1,
                                                  List<BenchmarkResult> algorithm2) {

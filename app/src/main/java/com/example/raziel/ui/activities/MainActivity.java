@@ -22,19 +22,16 @@ import com.google.android.material.chip.Chip;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.slider.Slider;
 
-import org.junit.runner.RunWith;
-
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Main Activity for testing encryption performance optimisations
@@ -69,8 +66,10 @@ public class MainActivity extends AppCompatActivity {
 
     // Performance Tracking
     private long startTime;
-    private long bytesProcessed;
+    private AtomicLong bytesProcessed = new AtomicLong(0);
+    private long totalBytesProcessed = 0;
     private Handler progressHandler = new Handler(Looper.getMainLooper());
+    private Runnable progressUpdater;
 
     private static final int MAX_THREADS = 4; // For parallel processing
     private ExecutorService executorService;
@@ -101,6 +100,10 @@ public class MainActivity extends AppCompatActivity {
      */
     private void setupEncryptionManager() {
         encryptionManager = new EncryptionManager(this);
+
+        // Show recommended algorithm
+        InterfaceEncryptionAlgorithm recommended = encryptionManager.getRecommendedAlgorithm();
+        updateStatus("Initialised. Recommended algorithm: " + recommended.getAlgorithmName());
     }
 
 
@@ -140,7 +143,6 @@ public class MainActivity extends AppCompatActivity {
         // File Size Components
         fileSizeSlider = findViewById(R.id.fileSizeSlider);
         fileSizeText = findViewById(R.id.fileSizeText);
-
 
         // Setup algorithm dropdown
         List<String> algorithms = new ArrayList<>();
@@ -212,6 +214,10 @@ public class MainActivity extends AppCompatActivity {
      */
     private void stopProgressionMonitoring() {
         progressHandler.removeCallbacksAndMessages(null);
+        if (progressUpdater != null) {
+            progressHandler.removeCallbacks(progressUpdater);
+            progressUpdater = null;
+        }
     }
 
 
@@ -266,26 +272,35 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Start progress monitoring with real-time updates
      */
-    private void startProgressMonitoring(long totalBytes) {
-        Runnable progressUpdater = new Runnable() {
+    private void startProgressMonitoring(long totalBytes, String operation) {
+        totalBytesProcessed = totalBytes;
+        bytesProcessed.set(0);
+        startTime = SystemClock.elapsedRealtime();
+
+        // Set appropriate progress title based on operation
+        updateProgress(operation + "...", 0);
+
+        progressUpdater = new Runnable() {
             @Override
             public void run() {
+                long currentBytes = bytesProcessed.get();
                 long elapsedMs = SystemClock.elapsedRealtime() - startTime;
                 double elapsedSec = elapsedMs / 1000.0;
 
                 // Calculate progress
-                int progress = (int) ((bytesProcessed * 100) / totalBytes);
+                int progress = totalBytesProcessed > 0 ?
+                        (int) ((currentBytes * 100) / totalBytesProcessed) : 0;
 
                 // Calculate speed
                 double speedMBps = 0;
                 if (elapsedSec > 0) {
-                    speedMBps = (bytesProcessed / (1024.0 * 1024.0)) / elapsedSec;
+                    speedMBps = (currentBytes / (1024.0 * 1024.0)) / elapsedSec;
                 }
 
                 // Estimate time remaining
                 double remainingSec = 0;
-                if (speedMBps > 0) {
-                    double remainingMB = (totalBytes - bytesProcessed) / (1024.0 * 1024.0);
+                if (speedMBps > 0 && currentBytes < totalBytesProcessed) {
+                    double remainingMB = (totalBytesProcessed - currentBytes) / (1024.0 * 1024.0);
                     remainingSec = remainingMB / speedMBps;
                 }
 
@@ -293,7 +308,7 @@ public class MainActivity extends AppCompatActivity {
                 updateProgressUI(progress, speedMBps, remainingSec);
 
                 // Continue updating if not complete
-                if (bytesProcessed < totalBytes) {
+                if (currentBytes < totalBytesProcessed) {
                     progressHandler.postDelayed(this, 100); // update every 100ms
                 }
             }
@@ -302,6 +317,13 @@ public class MainActivity extends AppCompatActivity {
         progressHandler.post(progressUpdater);
     }
 
+
+    /**
+     * Updates bytes processed (this is called during encryption/decryption)
+     */
+    public void updateBytesProcessed(long bytes) {
+        bytesProcessed.set(bytes);
+    }
 
     /**
      * Get algorithm names for spinner display
@@ -491,10 +513,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private void performStandardEncryption(File inputFile, InterfaceEncryptionAlgorithm algorithm) {
         startTime = SystemClock.elapsedRealtime();
-        bytesProcessed = 0;
 
         // Start progress monitoring
-        startProgressMonitoring(inputFile.length());
+        startProgressMonitoring(inputFile.length(), "Encrypting");
 
         EncryptionResult result = encryptionManager.encryptFile(inputFile, algorithm, null);
 
@@ -594,10 +615,20 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 // Start progress monitor
-                startProgressMonitoring(lastEncryptedFile.length());
+                startProgressMonitoring(lastEncryptedFile.length(), "Decrypting");
+
+                //Set up progress callback
+                algorithm.setProgressCallback(new InterfaceEncryptionAlgorithm.ProgressCallback() {
+                    @Override
+                    public void onProgressUpdate(long bytesProcessed, long totalBytes) {
+                        // Update the bytes processed on the main thread
+                        runOnUiThread(() -> updateBytesProcessed(bytesProcessed));
+                    }
+                });
 
                 EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, null);
 
+                algorithm.setProgressCallback(null);
                 stopProgressionMonitoring();
 
                 if (result.isSuccess()) {

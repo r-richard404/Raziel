@@ -8,8 +8,13 @@ import com.example.raziel.core.encryption.algorithms.ChaCha20_Poly1305;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
 import com.example.raziel.core.encryption.models.EncryptionResult;
 import com.example.raziel.core.performance.PerformanceMetrics;
+import com.example.raziel.core.profiler.DeviceProfiler;
+import com.google.crypto.tink.KeyTemplate;
+import com.google.crypto.tink.KeyTemplates;
+import com.google.crypto.tink.KeysetHandle;
 
 import java.io.File;
+import java.security.GeneralSecurityException;
 import java.util.Arrays;
 import java.util.List;
 
@@ -22,32 +27,24 @@ public class EncryptionManager {
     // TODO: Left list only with 1 algorithm until the others are implemented
 
     private static final String TAG = "EncryptionManager";
-
-    // Context needed for device capability detection (memory class, CPU cores, etc)
     private final Context context;
-
-    // Currently using only AES-256 and ChaCha20-Poly1305
+    private final KeyManager keyManager;
+    private final DeviceProfiler deviceProfiler;
     private final List<InterfaceEncryptionAlgorithm> availableAlgorithms;
-
-    // Performance metrics collector
     private final PerformanceMetrics performanceMetrics;
 
-    // TODO: temporary key before implementing key management system
-    private byte[] lastEncryptionKey = null;
+    //TODO: Implement proper storage for key management\
 
+    // Temporary keyset storage for supervisor demo
+    private KeysetHandle lastEncryptionKey = null;
 
     /**
      * Constructor initialises encryption manager with device context
-     *
-     * Context matters because:
-     * Algorithms require to detect device capabilities
-     * Memory class determines optimal buffer size
-     * CPU core count affects parallel processing decisions
-     *
-     * @param context Android context for system service access
      */
     public EncryptionManager(Context context) {
         this.context = context;
+        this.keyManager = new KeyManager(context);
+        this.deviceProfiler = new DeviceProfiler(context);
         this.performanceMetrics = new PerformanceMetrics();
 
         // Initialising available algorithms
@@ -57,26 +54,19 @@ public class EncryptionManager {
         Log.d(TAG, "Encryption Manager initialised with " + availableAlgorithms.size() + " algorithms");
     }
 
-
     /**
      * Get list of available encryption algorithms for UI display
-     *
-     * @return List of algorithm implementations
      */
     public List<InterfaceEncryptionAlgorithm> getAvailableAlgorithms() {
         return availableAlgorithms;
     }
 
-
     /**
      * Get current performance metrics
-     *
-     * @return Performance metrics snapshot
      */
     public PerformanceMetrics.PerformanceSnapshot getPerformanceMetrics() {
         return performanceMetrics.getSnapshot();
     }
-
 
     /**
      * Reset performance metrics
@@ -85,12 +75,8 @@ public class EncryptionManager {
         performanceMetrics.reset();
     }
 
-
     /**
      * Find algorithm implementation by name
-     *
-     * @param name Algorithm name (e.g. AES)
-     * @return Algorithm implementation or null if not found
      */
     public InterfaceEncryptionAlgorithm getAlgorithmByName(String name) {
         for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
@@ -101,15 +87,45 @@ public class EncryptionManager {
         return null;
     }
 
+    /**
+     * Clean up encryption resources when shutting down
+     */
+    public void cleanup() {
+        Log.d(TAG, "Cleaning up EncryptionManager resources");
+        lastEncryptionKey = null;
+    }
+
+    // Intelligent algorithm recommendation based on device capabilities
+    public InterfaceEncryptionAlgorithm getRecommendedAlgorithm() {
+        return deviceProfiler.preferAES() ? getAlgorithmByName("AES-256-GCM") : getAlgorithmByName("ChaCha20-Poly1305");
+    }
+
+    // Select appropriate Tink key template based on algorithm and device capablities
+    private KeyTemplate selectKeyTemplate(InterfaceEncryptionAlgorithm algorithm) throws GeneralSecurityException {
+        int segmentSize = algorithm.getOptimalSegmentSize();
+
+        if (algorithm.getAlgorithmName().contains("AES")) {
+            // AES-256-GCm with adaptive segment size
+            if (segmentSize >= 1024 * 1024) {
+                return KeyTemplates.get("AES256_GCM_HKDF_1MB");
+            } else if (segmentSize >= 256 * 1024){
+                return KeyTemplates.get("AES256_GCM_HKDF_4KB");
+            } else {
+                return KeyTemplates.get("AES256_GCM_HKDF_4KB");
+            }
+        } else {
+            // ChaCha20
+            if (segmentSize >= 1024 * 1024) {
+                return KeyTemplates.get("AES256_GCM_HKDF_1MB"); // Tink doesn't have streaming template for ChaCha
+            } else {
+                return KeyTemplates.get("AES256_GCM_HKDF_4KB");
+            }
+        }
+    }
+
 
     /**
      * Encrypts a file using the specified algorithm
-     *
-     *
-     * @param inputFile The file to encrypt
-     * @param algorithm The encryption algorithm to use
-     * @param outputFileName Optional custom output filename
-     * @return Encryption result with success/failure status and metrics
      */
     public EncryptionResult encryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, String outputFileName) {
         long startTime = System.nanoTime();
@@ -128,19 +144,15 @@ public class EncryptionManager {
             // Generate output file path
             File outputFile = new File(inputFile.getParent(), outputFileName != null ? outputFileName : inputFile.getName() + ".encrypted");
 
-            // Generate encryption key
-            byte[] key = algorithm.generateKey();
-            if (key == null) {
-                return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Failed to generate encryption key", inputFile);
-            }
+            // Create keyset for encryption
+            KeyTemplate keyTemplate = selectKeyTemplate(algorithm);
+            KeysetHandle keysetHandle = keyManager.createStreamingKeysetHandle(keyTemplate.toParameters());
 
-            // Store the key for decryption to use
-            // TODO: remove this and replace it with key management access
-            lastEncryptionKey = Arrays.copyOf(key, key.length);
-
+            lastEncryptionKey = keysetHandle;
 
             // Perform encryption
-            boolean success = algorithm.encryptFile(inputFile, outputFile, key, null);
+            boolean success = algorithm.encryptFile(inputFile, outputFile, keysetHandle, null);
+
             long endTime = System.nanoTime();
             long elapsedNS = (endTime - startTime); // Used for performance metric
             long elapsedMS =  elapsedNS / 1_000_000; // Convert nano to milliseconds
@@ -154,18 +166,12 @@ public class EncryptionManager {
             );
 
             if (success) {
-                // Zero out the key from memory immediately after use to ensure security
-                // This prevents key leakage through memory dumps or swap
-                Arrays.fill(key, (byte) 0);
                 return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.ENCRYPT, elapsedMS, inputFile.length());
             } else {
-                // Zero out key in case of failure
-                Arrays.fill(key, (byte) 0);
-                lastEncryptionKey = null; // Clear stored key on failure
                 return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Encryption process failed", inputFile);
             }
-        } catch (Exception e) {
-            lastEncryptionKey = null; // Clear stored key on exception
+        } catch (GeneralSecurityException e) {
+            Log.e(TAG, "Encryption Failed", e);
             return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Encryption error: " + e.getMessage(), inputFile);
         }
     }
@@ -173,23 +179,6 @@ public class EncryptionManager {
 
     /**
      * Decrypting file using the specified algorithm
-     * This demo implementation generates a new key for decryption testing
-     * It will use the key by:
-     * 1. Stored in Android KeyStore
-     * 2. Encrypted with user password using PBKDF2 (600,000+ iterations)
-     * 3. Protected with biometric authentication
-     * 4. Never stored in plaintext SharedPreferences or files
-     *
-     * TODO: Key management architecture
-     * 1. Master key in Android Keystore
-     * 2. File encryption keys encrypted with master key
-     * 3. Key derivation caching for password-based keys
-     * 4. Secure wiping after use
-     *
-     * @param inputFile The encrypted file to decrypt
-     * @param algorithm The algorithm used for encryption
-     * @param outputFileName Optional custom output filename
-     * @return EncryptionResult with success/failure status and metrics
      */
     public EncryptionResult decryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, String outputFileName) {
         long startTime = System.nanoTime();
@@ -210,16 +199,13 @@ public class EncryptionManager {
                         "first before decrypting it. This is a limitation until keys are retrieved from secure storage.", inputFile);
             }
 
-            // Use the stored key
-            byte[] key = lastEncryptionKey;
-
 
             // Generate output file path
             String originalName = inputFile.getName().replace(".encrypted", "");
             File outputFile = new File(inputFile.getParent(), outputFileName != null ? outputFileName : "decrypted_" + originalName);
 
             // Perform decryption
-            boolean success = algorithm.decryptFile(inputFile, outputFile, key, null);
+            boolean success = algorithm.decryptFile(inputFile, outputFile, lastEncryptionKey, null);
             long endTime = System.nanoTime();
             long elapsedNS = (endTime - startTime);
             long elapsedMS =  elapsedNS / 1_000_000;
@@ -232,11 +218,6 @@ public class EncryptionManager {
                     success
             );
 
-            // Security practice to zero out keys after use
-            if (key != null) {
-                Arrays.fill(key, (byte) 0);
-            }
-
             if (success) {
                 return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.DECRYPT, elapsedMS, inputFile.length());
             } else {
@@ -247,37 +228,4 @@ public class EncryptionManager {
         }
     }
 
-
-    /**
-     * Clean up encryption resources when shutting down
-     *
-     * This is called in Activity's onDestroy() or when switching encryption providers.
-     * Ensures proper cleanup of:
-     * 1. ThreadLocal cipher instances
-     * 2. Cached keys
-     * 3. Buffer pools
-     *
-     * It matters because:
-     * 1. Prevents memory leaks in long-running apps
-     * 2. Clears sensitive cryptographic material
-     * 3. Releases native resources used by crypto providers
-     *
-     */
-    public void cleanup() {
-        Log.d(TAG, "Cleaning up EncryptionManager resources");
-        // Clean up each algorithm's resources
-//        for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
-//            if (algorithm instanceof AES_256) {
-//                AES_256.closeQuietly();
-//            } else if (algorithm instanceof ChaCha20_Poly1305) {
-//                ChaCha20_Poly1305.cleanup();
-//            }
-//        }
-
-        // Clear stored keys
-        if (lastEncryptionKey != null) {
-            Arrays.fill(lastEncryptionKey, (byte) 0);
-            lastEncryptionKey = null;
-        }
-    }
 }

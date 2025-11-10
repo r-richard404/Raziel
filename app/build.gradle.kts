@@ -41,4 +41,6 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
+    implementation("com.google.crypto.tink:tink-android:1.12.0")
+    implementation("androidx.benchmark:benchmark-junit4:1.2.0")
 }
