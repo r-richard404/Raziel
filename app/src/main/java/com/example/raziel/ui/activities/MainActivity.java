@@ -5,9 +5,10 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
+import android.util.Log;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
@@ -26,12 +27,13 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.Map;
 
 /**
  * Main Activity for testing encryption performance optimisations
@@ -49,10 +51,10 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class MainActivity extends AppCompatActivity {
     // UI Components
-    private AutoCompleteTextView algorithmDropdown;
+    private AutoCompleteTextView algorithmDropdown, fileTypeDropdown;
     private MaterialButton btnEncrypt, btnDecrypt, btnBenchmark;
     private LinearProgressIndicator progressBar;
-    private TextView processStatus, progressTitle, progressPercentage;
+    private TextView processStatus, progressTitle, progressPercentage, fileTypeDescription;
     private TextView speedMetric, timeRemaining, fileSizeText;
     private MaterialCardView progressCard, resultsCard;
     private Slider fileSizeSlider;
@@ -136,6 +138,13 @@ public class MainActivity extends AppCompatActivity {
         fileSizeSlider = findViewById(R.id.fileSizeSlider);
         fileSizeText = findViewById(R.id.fileSizeText);
 
+        // File Type Dropdown
+        fileTypeDropdown = findViewById(R.id.fileTypeDropdown);
+        fileTypeDescription = findViewById(R.id.fileTypeDescription);
+
+        // Setup File Type Dropdown
+        setupFileTypeDropdown();
+
         // Setup algorithm dropdown
         List<String> algorithms = new ArrayList<>();
         for (InterfaceEncryptionAlgorithm algorithm : encryptionManager.getAvailableAlgorithms()) {
@@ -201,6 +210,38 @@ public class MainActivity extends AppCompatActivity {
         });
 
         fileSizeSlider.setValue(10);
+    }
+
+    /**
+     * Setup file type dropdown with supported file types and descriptions
+     */
+    private void setupFileTypeDropdown() {
+        // Define supported file types with descriptions
+        Map<String, String> fileTypes = new LinkedHashMap<String, String>() {{
+            put("TXT", "Text file with readable content");
+            put("PDF", "PDF document with structured content");
+            put("JPG", "JPEG image file (simulated)");
+            put("PNG", "PNG image file (simulated)");
+            put("MP3", "Audio file (simulated)");
+            put("MP4", "Video file (simulated)");
+            put("DOCX", "Word document (simulated)");
+            put("ZIP", "Compressed archive (simulated)");
+        }};
+
+        List<String> fileTypeList = new ArrayList<>(fileTypes.keySet());
+
+        ArrayAdapter<String> fileTypeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, fileTypeList);
+        fileTypeDropdown.setAdapter(fileTypeAdapter);
+
+        // Update description when selection changes
+        fileTypeDropdown.setOnItemClickListener((parent, view, position, id) -> {
+            String selectedType = fileTypeList.get(position);
+            String description = fileTypes.get(selectedType);
+            fileTypeDescription.setText(description);
+        });
+
+        // Set initial description
+        fileTypeDescription.setText(fileTypes.get("TXT"));
     }
 
 
@@ -399,11 +440,48 @@ public class MainActivity extends AppCompatActivity {
         progressHandler.removeCallbacksAndMessages(null);
     }
 
+    // Get easier access on real hardware device testing
+    private File getOutputFileInDownloads(String fileName) {
+        File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        if (!downloadsDir.exists()) {
+            downloadsDir.mkdirs();
+        }
+        return new File(downloadsDir, fileName);
+    }
+
+    // Initialise different file types for testing based on patterns
+    private String getTestPatternForFileType(String fileExtension) {
+        switch (fileExtension.toLowerCase()) {
+            case "txt":
+                return "This is a test text file for Raziel encryption testing. " +
+                        "The quick brown fox jumps over the lazy dog. " +
+                        "Encryption test pattern - File created at: " + System.currentTimeMillis() + " ";
+            case "jpg":
+            case "jpeg":
+                // Simple JPEG header pattern, not real but recognised by extension and data
+                return "JPEG_TEST_DATA_" + System.currentTimeMillis() + "_RAZIEL_ENCRYPTION_TEST_PATTERN_";
+            case "png":
+                return "PNG_TEST_DATA_" + System.currentTimeMillis() + "_RAZIEL_ENCRYPTION_TEST_PATTERN_";
+            case "pdf":
+                return "%PDF_TEST_VERISON_RAZIEL_ENCRYPTION_TEST_" + System.currentTimeMillis() + " ";
+            case "mp4":
+                return "MP4_TEST_DATA_" + System.currentTimeMillis() + "_RAZIEL_ENCRYPTION_TEST_PATTERN_";
+            default:
+                return "RAZIEL_ENCRYPTION_TEST_FILE_" + System.currentTimeMillis() + "_TEST_DATA_PATTERN_";
+        }
+    }
+
     /**
      * Create test file with specified size
      */
-    private void createTestFile(int sizeMB) throws IOException {
-        testFile = new File(getFilesDir(), "test_file_" + sizeMB + "mb.dat");
+    private File createTestFile(int sizeMB, String fileExtension, String algorithmName) throws IOException {
+        String timeStamp = String.valueOf(System.currentTimeMillis());
+        String fileName = "test_file_" + sizeMB + "mb_" + timeStamp + "_" + algorithmName + "." + fileExtension;
+        //testFile = new File(getFilesDir(), "test_file_" + sizeMB + "mb.dat");
+
+        // Save to Downloads directory for easy access on hardware device testing
+        File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        File testFile = new File(downloadsDir, fileName);
 
         updateProgress("Creating " + sizeMB + "MB test file...", -1);
 
@@ -411,10 +489,9 @@ public class MainActivity extends AppCompatActivity {
         final int BUFFER_SIZE = 1024 * 1024; //1MB buffer
         byte[] buffer = new byte[BUFFER_SIZE];
 
-        // Fill buffer with test data
-        for (int i = 0; i < buffer.length; i++) {
-            buffer[i] = (byte) (i % 256);
-        }
+        // Fill with different patterns based on file type
+        String pattern = getTestPatternForFileType(fileExtension);
+        byte[] patternBytes = pattern.getBytes();
 
         long targetBytes = (long) sizeMB * 1024 * 1024;
         long written = 0;
@@ -422,16 +499,29 @@ public class MainActivity extends AppCompatActivity {
         try (BufferedOutputStream bos = new BufferedOutputStream(
                 new FileOutputStream(testFile), BUFFER_SIZE)) {
 
+            // Get appropriate content pattern for file type
+            String header = generateFileHeader(fileExtension, sizeMB);
+            byte[] headerBytes = header.getBytes();
+
+            bos.write(headerBytes);
+            written += headerBytes.length;
+
+            // Fill the rest of the file with pattern
             while (written < targetBytes) {
                 int toWrite = (int) Math.min(BUFFER_SIZE, targetBytes - written);
                 bos.write(buffer, 0, toWrite);
                 written += toWrite;
 
-                // Update progress
-                int progress = (int) ((written * 100) / targetBytes);
-                updateProgress("Creating test file...", progress);
+                // Update progress occasionally
+                if (written % (5 * 1024 * 1024) == 0) {  // Every 5MB
+                    int progress = (int) ((written * 100) / targetBytes);
+                    updateProgress("Creating test file...", progress);
+                }
+
             }
         }
+        Log.d("FileDebug", "Test file created: " + testFile.getAbsolutePath() + ", Size: " + testFile.length() + " bytes, Type: " + fileExtension);
+        return testFile;
     }
 
     /**
@@ -444,11 +534,6 @@ public class MainActivity extends AppCompatActivity {
 
         new Thread(() -> {
             try {
-                // Get file size from slider
-                int sizeMB = (int) fileSizeSlider.getValue();
-
-                // Create test file
-                createTestFile(sizeMB);
 
                 // Get selected algorithm
                 String algorithmName = algorithmDropdown.getText().toString();
@@ -463,9 +548,25 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
+                // Get file size from slider
+                int sizeMB = (int) fileSizeSlider.getValue();
+
+                // Get file type from Dropdown
+                String fileType = fileTypeDropdown.getText().toString();
+                if (fileType == null || fileType.isEmpty()) {
+                    fileType = "TXT"; // Default
+                }
+
+                // Create test file
+                //createTestFile(sizeMB);
+                File testFile = createTestFile(sizeMB, fileType, algorithmName);
+
                 // Set up progress callback
                 algorithm.setProgressCallback((bytesProcessed, totalBytes) ->
                         runOnUiThread(() -> updateProgressBar(bytesProcessed, totalBytes)));
+
+                // Create encrypted file with appropriate extension
+                String encryptedFileName = "encrypted_" + testFile.getName() + ".raziel";
 
                 long startTime = System.currentTimeMillis();
                 EncryptionResult result = encryptionManager.encryptFile(testFile, algorithm, "encrypted_file.enc");
@@ -477,7 +578,14 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     if (result.isSuccess()) {
                         lastEncryptedFile = result.getOutputFile();
+
+                        //testDecryptionVerification(testFile, lastEncryptedFile);
                         handleEncryptionResult(result);
+
+                        // Log file locations for debugging
+                        Log.d("FileLocations", "Original: " + testFile.getAbsolutePath());
+                        Log.d("FileLocations", "Encrypted: " + lastEncryptedFile.getAbsolutePath());
+
                     } else {
                         updateStatus("Encryption Failed: " + result.getErrorMessage());
                     }
@@ -592,417 +700,105 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Generate appropriate file header based on file type
+     */
+    private String generateFileHeader(String fileExtension, int sizeMB) {
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
 
+        switch (fileExtension.toUpperCase()) {
+            case "TXT":
+                return "RAZIEL ENCRYPTION TEST - TEXT FILE\n" +
+                        "Created: " + timestamp + "\n" +
+                        "Size: " + sizeMB + "MB\n" +
+                        "Purpose: Encryption performance testing\n" +
+                        "Content: The quick brown fox jumps over the lazy dog.\n" +
+                        "Repeat pattern below:\n" +
+                        "=" .repeat(50) + "\n";
+
+            case "PDF":
+                return "%PDF-1.4\n" +
+                        "% Raziel Test PDF Document\n" +
+                        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+                        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" +
+                        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n" +
+                        "4 0 obj\n<< /Length 100 >>\nstream\n" +
+                        "BT /F1 12 Tf 72 720 Td (RAZIEL ENCRYPTION TEST PDF) Tj ET\n" +
+                        "endstream\nendobj\n" +
+                        "xref\n0 5\n" +
+                        "0000000000 65535 f \n" +
+                        "0000000009 00000 n \n" +
+                        "0000000058 00000 n \n" +
+                        "0000000115 00000 n \n" +
+                        "0000000234 00000 n \n" +
+                        "trailer\n<< /Size 5 /Root 1 0 R >>\n" +
+                        "startxref\n300\n%%EOF\n";
+
+            case "JPG":
+                return "\u00FF\u00D8\u00FF\u00E0" + // JPEG Start
+                        "RAZIEL TEST JPEG IMAGE - " + timestamp +
+                        " - Size: " + sizeMB + "MB - This is simulated JPEG data for encryption testing.";
+
+            case "PNG":
+                return "\u0089PNG\r\n\u001a\n" + // PNG Start
+                        "RAZIEL TEST PNG IMAGE - " + timestamp +
+                        " - Size: " + sizeMB + "MB - Simulated PNG data for encryption testing.";
+
+            case "MP3":
+                return "ID3" + // MP3 Start
+                        "RAZIEL TEST MP3 AUDIO - " + timestamp +
+                        " - Size: " + sizeMB + "MB - Simulated audio data for encryption testing.";
+
+            case "MP4":
+                return "ftypmp42" + // MP4 Start
+                        "RAZIEL TEST MP4 VIDEO - " + timestamp +
+                        " - Size: " + sizeMB + "MB - Simulated video data for encryption testing.";
+
+            case "DOCX":
+                return "PK\u0003\u0004" + // ZIP header (DOCX is a zip)
+                        "[Content_Types].xml" +
+                        "RAZIEL TEST DOCX DOCUMENT - " + timestamp;
+
+            case "ZIP":
+                return "PK\u0003\u0004" + // ZIP header
+                        "RAZIEL TEST ZIP ARCHIVE - " + timestamp +
+                        " - Contains simulated compressed data for encryption testing.";
+
+            default:
+                return "RAZIEL ENCRYPTION TEST FILE\nType: " + fileExtension +
+                        "\nCreated: " + timestamp + "\nSize: " + sizeMB + "MB\n";
+        }
+    }
 
     /**
-     * Start progress monitoring with real-time updates
+     * Generate content pattern based on file type
      */
-//    private void startProgressMonitoring(long totalBytes, String operation) {
-//        totalBytesProcessed = totalBytes;
-//        bytesProcessed.set(0);
-//        startTime = SystemClock.elapsedRealtime();
-//
-//        // Set appropriate progress title based on operation
-//        updateProgress(operation + "...", 0);
-//
-//        progressUpdater = new Runnable() {
-//            @Override
-//            public void run() {
-//                long currentBytes = bytesProcessed.get();
-//                long elapsedMs = SystemClock.elapsedRealtime() - startTime;
-//                double elapsedSec = elapsedMs / 1000.0;
-//
-//                // Calculate progress
-//                int progress = totalBytesProcessed > 0 ?
-//                        (int) ((currentBytes * 100) / totalBytesProcessed) : 0;
-//
-//                // Calculate speed
-//                double speedMBps = 0;
-//                if (elapsedSec > 0) {
-//                    speedMBps = (currentBytes / (1024.0 * 1024.0)) / elapsedSec;
-//                }
-//
-//                // Estimate time remaining
-//                double remainingSec = 0;
-//                if (speedMBps > 0 && currentBytes < totalBytesProcessed) {
-//                    double remainingMB = (totalBytesProcessed - currentBytes) / (1024.0 * 1024.0);
-//                    remainingSec = remainingMB / speedMBps;
-//                }
-//
-//                // Update UI
-//                updateProgressUI(progress, speedMBps, remainingSec);
-//
-//                // Continue updating if not complete
-//                if (currentBytes < totalBytesProcessed) {
-//                    progressHandler.postDelayed(this, 100); // update every 100ms
-//                }
-//            }
-//        };
-//
-//        progressHandler.post(progressUpdater);
-//    }
+    private String generateContentPattern(String fileExtension) {
+        switch (fileExtension.toUpperCase()) {
+            case "TXT":
+                return "Encryption test pattern line - ABCDEFGHIJKLMNOPQRSTUVWXYZ - 0123456789 - " +
+                        "The quick brown fox jumps over the lazy dog. ";
 
+            case "PDF":
+                return "stream\nBT /F1 10 Tf 50 700 Td (Encryption test content line: PDF document simulation) Tj ET\nendstream\n";
 
-    /**
-     * Updates bytes processed (this is called during encryption/decryption)
-     */
-    //public void updateBytesProcessed(long bytes) {
-        //bytesProcessed.set(bytes);
-    //}
+            case "JPG":
+            case "PNG":
+                return "IMAGE_DATA_BLOCK[" + System.currentTimeMillis() + "]_RAZIEL_ENCRYPTION_TEST_PATTERN_";
 
-    /**
-     * Get algorithm names for spinner display
-     *
-     * @return Get algorithm names
-     */
-//    private String[] getAlgorithmNames() {
-//        return encryptionManager.getAvailableAlgorithms().stream().map(InterfaceEncryptionAlgorithm::getAlgorithmName).toArray(String[]::new);
-//    }
+            case "MP3":
+            case "MP4":
+                return "MEDIA_DATA_FRAME[" + System.currentTimeMillis() + "]_AUDIO_VIDEO_TEST_PATTERN_";
 
+            case "DOCX":
+                return "<w:p><w:r><w:t>Encryption test paragraph for DOCX document simulation.</w:t></w:r></w:p>";
 
-    /**
-     * Update status text on UI thread
-     */
-//    private void updateStatus(String message) {
-//        runOnUiThread(() -> {
-//            if (processStatus != null) {
-//                processStatus.setText(message);
-//            }
-//        });
-//    }
+            case "ZIP":
+                return "COMPRESSED_DATA_BLOCK[" + System.currentTimeMillis() + "]_ZIP_ARCHIVE_TEST_CONTENT_";
 
-
-    /**
-     * Show results
-     */
-//    private void showResults(String message) {
-//        runOnUiThread(() -> {
-//            if (processStatus != null) {
-//                processStatus.setText(message);
-//            }
-//            if (resultsCard != null) {
-//                resultsCard.setVisibility(View.VISIBLE);
-//            }
-//        });
-//    }
-
-
-    /**
-     * Show detailed results
-     */
-//    private void showDetailedResults(EncryptionResult result) {
-//        long fileSizeMB = result.getFileSizeBytes() / (1024 * 1024);
-//        double timeSec = result.getProcessingTimeMs() / 1000.0;
-//        double throughputMBps = fileSizeMB / timeSec;
-//
-//        @SuppressLint("DefaultLocale") String message = String.format(
-//                "SUCCESSFUL\n\n" +
-//                        "Operation: %s\n" +
-//                        "Algorithm: %s\n" +
-//                        "File Size: %d MB\n" +
-//                        "Time: %.2f seconds\n" +
-//                        "Throughput: %.2f MB/s\n" +
-//                        "Device: %s\n" +
-//                        "Cores Used: %d",
-//                result.getOperation(),
-//                result.getAlgorithmName(),
-//                fileSizeMB, timeSec, throughputMBps,
-//                chipDevice != null ? chipDevice.getText() : "Unknown",
-//                Runtime.getRuntime().availableProcessors()
-//        );
-//
-//        showResults(message);
-//    }
-//
-//
-//    /**
-//     * Show/Hide Progress
-//     */
-//    private void showProgress(boolean show) {
-//        runOnUiThread(() -> {
-//            if (progressBar != null) {
-//                progressCard.setVisibility(show ? View.VISIBLE : View.GONE);
-//            }
-//
-//            if (!show && progressBar != null) {
-//                progressBar.setProgress(0);
-//                if (progressPercentage != null) {
-//                    progressPercentage.setText("0%");
-//                }
-//                if (speedMetric != null) {
-//                    speedMetric.setText("0 MB/s");
-//                }
-//                if (timeRemaining != null) {
-//                    timeRemaining.setText("");
-//                }
-//            }
-//        });
-//    }
-//
-//
-//    /**
-//     * Enable/disable UI controls during operations
-//     */
-//    private void setUiEnabled(boolean enabled) {
-//        runOnUiThread(() -> {
-//            if (btnEncrypt != null) {
-//                btnEncrypt.setEnabled(enabled);
-//            }
-//            if (btnDecrypt != null) {
-//                btnDecrypt.setEnabled(enabled);
-//            }
-//            if (btnBenchmark != null) {
-//                btnBenchmark.setEnabled(enabled);
-//            }
-//            if (algorithmDropdown != null) {
-//                algorithmDropdown.setEnabled(enabled);
-//            }
-//            if (fileSizeSlider != null) {
-//                fileSizeSlider.setEnabled(enabled);
-//            }
-//        });
-//    }
-//
-//
-//    /**
-//     * Run full benchmark
-//     */
-//    private void runFullBenchmark() {
-//        showResults("Starting comprehensive benchmark...");
-//        //TODO: Implement benchmark class
-//        updateStatus("Benchmark functionality will be implemented...");
-//    }
-//
-//
-//    /**
-//     * Clean up resources when activity is destroyed
-//     *
-//     * Ensures proper clean up of:
-//     * ThreadLocal cipher instances
-//     * Cached cryptographic material
-//     * Native resources
-//     */
-//    @Override
-//    protected void onDestroy() {
-//        super.onDestroy();
-//
-////        if(executorService != null) {
-////            executorService.shutdown();
-////        }
-//
-//        if (encryptionManager != null) {
-//            encryptionManager.cleanup();
-//        }
-//        stopProgressionMonitoring();
-//    }
-//
-//
-//    /**
-//     * Create test file with specified size
-//     */
-//    private void createTestFile(int sizeMB) throws IOException {
-//       testFile = new File(getFilesDir(), "test_file_" + sizeMB + "mb.dat");
-//
-//       updateProgress("Creating " + sizeMB + "MB test file...", -1);
-//
-//       // Use larger buffer for file creation
-//       final int BUFFER_SIZE = 1024 * 1024; //1MB buffer
-//       byte[] buffer = new byte[BUFFER_SIZE];
-//
-//       // Fill buffer with test data
-//       for (int i = 0; i < buffer.length; i++) {
-//           buffer[i] = (byte) (i % 256);
-//       }
-//
-//       long targetBytes = (long) sizeMB * 1024 * 1024;
-//       long written = 0;
-//
-//       try (BufferedOutputStream bos = new BufferedOutputStream(
-//               new FileOutputStream(testFile), BUFFER_SIZE)) {
-//
-//           while (written < targetBytes) {
-//               int toWrite = (int) Math.min(BUFFER_SIZE, targetBytes - written);
-//               bos.write(buffer, 0, toWrite);
-//               written += toWrite;
-//
-//               // Update progress
-//               int progress = (int) ((written * 100) / targetBytes);
-//               updateProgress("Creating test file...", progress);
-//           }
-//       }
-//    }
-//
-//
-//
-//    /**
-//     * Perform Encryption
-//     */
-//    private void performEncryption() {
-//        if (testFile == null || !testFile.exists()) {
-//            updateStatus("Test file not available");
-//            return;
-//        }
-//
-//        setUiEnabled(false);
-//        showProgress(true);
-//        updateStatus("Starting encryption...");
-//
-//        new Thread(() -> {
-//            try {
-//                // Get file size from slider
-//                int sizeMB = (int) fileSizeSlider.getValue();
-//
-//                // Create test file
-//                createTestFile(sizeMB);
-//
-//                // Get selected algorithm
-//                String algorithmName = algorithmDropdown.getText().toString();
-//                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
-//
-//                algorithm.setProgressCallback((bytesProcessed, totalBytesProcessed) ->
-//                        runOnUiThread(() -> updateProgressBar(bytesProcessed, totalBytesProcessed)));
-//
-//                long startTime = System.currentTimeMillis();
-//                EncryptionResult result = encryptionManager.encryptFile(testFile, algorithm, null);
-//                long endTime = System.currentTimeMillis();
-//
-//                new Handler(Looper.getMainLooper()).post(() -> {
-//                    if (result.isSuccess()) {
-//                        encryptedFile = result.getOutputFile();
-//                        handleEncryptionResult(result);
-//                    } else {
-//                        updateStatus("Encryption Failed: " + result.getErrorMessage());
-//                    }
-//                    setUiEnabled(true);
-//                });
-//
-//            } catch (Exception e) {
-//                runOnUiThread(() -> {
-//                    showResults("Encryption failed: " + e.getMessage());
-//                    setUiEnabled(true);
-//                    showProgress(false);
-//                });
-//            } finally {
-//                // Clean up test file
-//                if (testFile != null && testFile.exists()) {
-//                    testFile.delete();
-//                }
-//            }
-//        }).start();
-//    }
-//
-//
-//    /**
-//     * Perform decryption on background thread
-//     *
-//     * Note: Currently the encryption requires to be run first to have the file decrypted
-//     * TODO: Add file selector to select any file to encrypt
-//     */
-//    private void performDecryption() {
-//        if (lastEncryptedFile == null || !lastEncryptedFile.exists()) {
-//            // First must be encrypted
-//            //TODO: At the moment just testing file encrypt/decrypt, add file selection to decrypt whenever
-//            //TODO: not only after an encryption
-//            updateStatus("Use Encrypt first, proper file selection will be added in the future");
-//            return;
-//        }
-//
-//        setUiEnabled(false);
-//        showProgress(true);
-//
-//        new Thread(() -> {
-//            try {
-//                String algorithmName = algorithmDropdown.getText().toString();
-//                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
-//
-//                if (algorithm == null) {
-//                    runOnUiThread(() -> {
-//                        showResults("Algorithm not found: " + algorithmName);
-//                        setUiEnabled(true);
-//                        showProgress(false);
-//                    });
-//                    return;
-//                }
-//
-//                // Start progress monitor
-//                startProgressMonitoring(lastEncryptedFile.length(), "Decrypting");
-//
-//                //Set up progress callback
-//                algorithm.setProgressCallback(new InterfaceEncryptionAlgorithm.ProgressCallback() {
-//                    @Override
-//                    public void onProgressUpdate(long bytesProcessed, long totalBytes) {
-//                        // Update the bytes processed on the main thread
-//                        runOnUiThread(() -> updateBytesProcessed(bytesProcessed));
-//                    }
-//                });
-//
-//                EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, null);
-//
-//                algorithm.setProgressCallback(null);
-//                stopProgressionMonitoring();
-//
-//                if (result.isSuccess()) {
-//                    showDetailedResults(result);
-//                } else {
-//                    showResults("Decryption Failed: " + result.getErrorMessage());
-//                }
-//
-//            } catch (Exception e) {
-//                showResults("Decryption error: " + e);
-//            } finally {
-//                runOnUiThread(() -> {
-//                    setUiEnabled(true);
-//                    showProgress(false);
-//                });
-//            }
-//        }).start();
-//    }
-//
-//
-//    /**
-//     * Handling encryption/decryption result and displaying detailed metrics
-//     *
-//     * These help to validate that optimisations are working by:
-//     * Showing processing time
-//     * Showing throughput
-//     * Showing success or not
-//     *
-//     * @param result Passing the result of the encryption to be processed for display
-//     */
-//    private void handleEncryptionResult(EncryptionResult result) {
-//        if (result.isSuccess()) {
-//            // Calculate throughput to validate performance
-//            long fileSizeMB = result.getFileSizeBytes() / 1024 / 1024;
-//            double timeSec = result.getProcessingTimeMs() / 1000.0;
-//            double throughputMBs = fileSizeMB / timeSec;
-//
-//            @SuppressLint("DefaultLocale")
-//            String message = String.format(
-//                    "%s SUCCESSFUL!\n\n" +
-//                            "Operation: %s\n" +
-//                            "Algorithm: %s\n" +
-//                            "File Size: %d MB\n" +
-//                            "Processing Time: %d ms\n" +
-//                            "Throughput: %.2f MB/s\n\n" +
-//                            "Input: %s\n" +
-//                            "Output: %s\n\n",
-//                    result.getOperation(),
-//                    result.getAlgorithmName(),
-//                    fileSizeMB,
-//                    result.getProcessingTimeMs(),
-//                    throughputMBs,
-//                    result.getInputFile().getName(),
-//                    result.getOutputFile().getName());
-//            updateStatus(message);
-//
-//        } else {
-//            updateStatus(String.format(
-//                    "%s FAILED \n\nError: %s\n\n File: %s",
-//                    result.getOperation(),
-//                    result.getErrorMessage(),
-//                    result.getInputFile().getName()
-//            ));
-//        }
-//    }
+            default:
+                return "TEST_DATA_PATTERN[" + System.currentTimeMillis() + "]_FILE_TYPE_" + fileExtension + "_";
+        }
+    }
 }
 

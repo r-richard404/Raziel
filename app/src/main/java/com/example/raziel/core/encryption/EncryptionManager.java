@@ -161,6 +161,9 @@ public class EncryptionManager {
 
             lastEncryptionKey = keysetHandle;
 
+            // Debug keyset
+            debugKeysetInfo(keysetHandle, "Encryption using");
+
             // Perform encryption
             boolean success = algorithm.encryptFile(inputFile, outputFile, keysetHandle, null);
 
@@ -232,6 +235,9 @@ public class EncryptionManager {
                         "first before decrypting it. This is a limitation until keys are retrieved from secure storage.", inputFile);
             }
 
+            // Debug keyset
+            debugKeysetInfo(lastEncryptionKey, "Decryption using");
+
 
             // Generate output file path
             String originalName = inputFile.getName().replace(".encrypted", "");
@@ -264,5 +270,18 @@ public class EncryptionManager {
     // Get Cache statistics
     public CacheManager.CacheStats getCacheStats() {
         return cacheManager.getStats();
+    }
+
+    private void debugKeysetInfo(KeysetHandle keysetHandle, String operation) {
+        try {
+            if (keysetHandle != null) {
+                Log.d("KeyDebug", operation + " - Keyset exists: " +
+                        (keysetHandle.getPrimary().toString()));
+            } else {
+                Log.d("KeyDebug", operation + " - Keyset is NULL");
+            }
+        } catch (Exception e) {
+            Log.e("KeyDebug", operation + " - Error checking keyset", e);
+        }
     }
 }
