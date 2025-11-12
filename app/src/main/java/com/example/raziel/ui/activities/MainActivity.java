@@ -65,14 +65,14 @@ public class MainActivity extends AppCompatActivity {
     private File lastEncryptedFile;
 
     // Performance Tracking
-    private long startTime;
-    private AtomicLong bytesProcessed = new AtomicLong(0);
-    private long totalBytesProcessed = 0;
+    //private long startTime;
+    //private AtomicLong bytesProcessed = new AtomicLong(0);
+    //private long totalBytesProcessed = 0;
     private Handler progressHandler = new Handler(Looper.getMainLooper());
-    private Runnable progressUpdater;
+    //private Runnable progressUpdater;
 
-    private static final int MAX_THREADS = 4; // For parallel processing
-    private ExecutorService executorService;
+    //private static final int MAX_THREADS = 4; // For parallel processing
+    //private ExecutorService executorService;
 
 
     @Override
@@ -85,18 +85,11 @@ public class MainActivity extends AppCompatActivity {
         setupFileSizeSlider();
 
         //Initialise thread pool for large file processing
-        executorService = Executors.newFixedThreadPool(MAX_THREADS);
+        //executorService = Executors.newFixedThreadPool(MAX_THREADS);
     }
 
     /**
      * Initialising encryption manager with this activity's context
-     *
-     * Context is important because it allows EncryptionManager to:
-     * 1. Detect device memory class in order to determine optimal buffer size
-     * 2. Accesses ActivityManager for system capabilities
-     * TODO: Future functionalities
-     * 3. Detecting CPU cores for parallel processing
-     * 4. Accessing Android KeyStore for secure key storage
      */
     private void setupEncryptionManager() {
         encryptionManager = new EncryptionManager(this);
@@ -105,7 +98,6 @@ public class MainActivity extends AppCompatActivity {
         InterfaceEncryptionAlgorithm recommended = encryptionManager.getRecommendedAlgorithm();
         updateStatus("Initialised. Recommended algorithm: " + recommended.getAlgorithmName());
     }
-
 
     /**
      * Initialise all UI components
@@ -151,7 +143,10 @@ public class MainActivity extends AppCompatActivity {
         }
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, algorithms);
         algorithmDropdown.setAdapter(adapter);
-        algorithmDropdown.setText(algorithms.get(0), false);
+        if (!algorithms.isEmpty()) {
+            algorithmDropdown.setText(algorithms.get(0), false);
+        }
+        //algorithmDropdown.setText(algorithms.get(0), false);
 
         // Button listeners
         btnEncrypt.setOnClickListener(v -> performEncryption());
@@ -212,20 +207,20 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Stop progress monitoring
      */
-    private void stopProgressionMonitoring() {
-        progressHandler.removeCallbacksAndMessages(null);
-        if (progressUpdater != null) {
-            progressHandler.removeCallbacks(progressUpdater);
-            progressUpdater = null;
-        }
-    }
+//    private void stopProgressionMonitoring() {
+//        progressHandler.removeCallbacksAndMessages(null);
+//        if (progressUpdater != null) {
+//            progressHandler.removeCallbacks(progressUpdater);
+//            progressUpdater = null;
+//        }
+//    }
 
 
     /**
      * Update progress UI
      */
     private void updateProgressUI(int progress, double speedMBps, double remainingSec) {
-        runOnUiThread(() ->{
+        runOnUiThread(() -> {
             if (progressBar != null) {
                 progressBar.setProgress(progress);
             }
@@ -259,81 +254,30 @@ public class MainActivity extends AppCompatActivity {
                 if (progress >= 0) {
                     progressBar.setIndeterminate(false);
                     progressBar.setProgress(progress);
-                    progressPercentage.setText(progress + "%");
+                    if (progressPercentage != null) {
+                        progressPercentage.setText(progress + "%");
+                    }
                 } else {
                     progressBar.setIndeterminate(true);
-                    progressPercentage.setText("");
+                    if (progressPercentage != null) {
+                        progressPercentage.setText("");
+                    }
                 }
             }
         });
     }
 
+    private void updateProgressBar(long bytesProcessed, long totalBytes) {
+        int progress = totalBytes > 0 ? (int) ((bytesProcessed * 100) / totalBytes) : 0;
+        progressBar.setProgress(progress);
 
-    /**
-     * Start progress monitoring with real-time updates
-     */
-    private void startProgressMonitoring(long totalBytes, String operation) {
-        totalBytesProcessed = totalBytes;
-        bytesProcessed.set(0);
-        startTime = SystemClock.elapsedRealtime();
+        double processedMB = bytesProcessed / 1024.0 / 1024.0;
+        double totalMB = totalBytes / 1024.0 / 1024.0;
 
-        // Set appropriate progress title based on operation
-        updateProgress(operation + "...", 0);
-
-        progressUpdater = new Runnable() {
-            @Override
-            public void run() {
-                long currentBytes = bytesProcessed.get();
-                long elapsedMs = SystemClock.elapsedRealtime() - startTime;
-                double elapsedSec = elapsedMs / 1000.0;
-
-                // Calculate progress
-                int progress = totalBytesProcessed > 0 ?
-                        (int) ((currentBytes * 100) / totalBytesProcessed) : 0;
-
-                // Calculate speed
-                double speedMBps = 0;
-                if (elapsedSec > 0) {
-                    speedMBps = (currentBytes / (1024.0 * 1024.0)) / elapsedSec;
-                }
-
-                // Estimate time remaining
-                double remainingSec = 0;
-                if (speedMBps > 0 && currentBytes < totalBytesProcessed) {
-                    double remainingMB = (totalBytesProcessed - currentBytes) / (1024.0 * 1024.0);
-                    remainingSec = remainingMB / speedMBps;
-                }
-
-                // Update UI
-                updateProgressUI(progress, speedMBps, remainingSec);
-
-                // Continue updating if not complete
-                if (currentBytes < totalBytesProcessed) {
-                    progressHandler.postDelayed(this, 100); // update every 100ms
-                }
-            }
-        };
-
-        progressHandler.post(progressUpdater);
+        String statusText = String.format("Processing: %.1f / %.1f MB (%d%%)",
+                processedMB, totalMB, progress);
+        processStatus.setText(statusText);
     }
-
-
-    /**
-     * Updates bytes processed (this is called during encryption/decryption)
-     */
-    public void updateBytesProcessed(long bytes) {
-        bytesProcessed.set(bytes);
-    }
-
-    /**
-     * Get algorithm names for spinner display
-     *
-     * @return Get algorithm names
-     */
-    private String[] getAlgorithmNames() {
-        return encryptionManager.getAvailableAlgorithms().stream().map(InterfaceEncryptionAlgorithm::getAlgorithmName).toArray(String[]::new);
-    }
-
 
     /**
      * Update status text on UI thread
@@ -345,7 +289,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-
 
     /**
      * Show results
@@ -360,7 +303,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-
 
     /**
      * Show detailed results
@@ -389,13 +331,12 @@ public class MainActivity extends AppCompatActivity {
         showResults(message);
     }
 
-
     /**
      * Show/Hide Progress
      */
     private void showProgress(boolean show) {
         runOnUiThread(() -> {
-            if (progressBar != null) {
+            if (progressCard != null) {
                 progressCard.setVisibility(show ? View.VISIBLE : View.GONE);
             }
 
@@ -413,7 +354,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
-
 
     /**
      * Enable/disable UI controls during operations
@@ -438,118 +378,69 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-
     /**
      * Run full benchmark
      */
     private void runFullBenchmark() {
         showResults("Starting comprehensive benchmark...");
-        //TODO: Implement benchmark class
         updateStatus("Benchmark functionality will be implemented...");
     }
 
-
     /**
      * Clean up resources when activity is destroyed
-     *
-     * Ensures proper clean up of:
-     * ThreadLocal cipher instances
-     * Cached cryptographic material
-     * Native resources
      */
     @Override
     protected void onDestroy() {
         super.onDestroy();
 
-        if(executorService != null) {
-            executorService.shutdown();
-        }
-
         if (encryptionManager != null) {
             encryptionManager.cleanup();
         }
-        stopProgressionMonitoring();
+        progressHandler.removeCallbacksAndMessages(null);
     }
-
 
     /**
      * Create test file with specified size
      */
     private void createTestFile(int sizeMB) throws IOException {
-       testFile = new File(getFilesDir(), "test_file_" + sizeMB + "mb.dat");
+        testFile = new File(getFilesDir(), "test_file_" + sizeMB + "mb.dat");
 
-       updateProgress("Creating " + sizeMB + "MB test file...", -1);
+        updateProgress("Creating " + sizeMB + "MB test file...", -1);
 
-       // Use larger buffer for file creation
-       final int BUFFER_SIZE = 1024 * 1024; //1MB buffer
-       byte[] buffer = new byte[BUFFER_SIZE];
+        // Use larger buffer for file creation
+        final int BUFFER_SIZE = 1024 * 1024; //1MB buffer
+        byte[] buffer = new byte[BUFFER_SIZE];
 
-       // Fill buffer with test data
-       for (int i = 0; i < buffer.length; i++) {
-           buffer[i] = (byte) (i % 256);
-       }
-
-       long targetBytes = (long) sizeMB * 1024 * 1024;
-       long written = 0;
-
-       try (BufferedOutputStream bos = new BufferedOutputStream(
-               new FileOutputStream(testFile), BUFFER_SIZE)) {
-
-           while (written < targetBytes) {
-               int toWrite = (int) Math.min(BUFFER_SIZE, targetBytes - written);
-               bos.write(buffer, 0, toWrite);
-               written += toWrite;
-
-               // Update progress
-               int progress = (int) ((written * 100) / targetBytes);
-               updateProgress("Creating test file...", progress);
-           }
-       }
-    }
-
-
-    /**
-     * Standard encryption for smaller files
-     */
-    private void performStandardEncryption(File inputFile, InterfaceEncryptionAlgorithm algorithm) {
-        startTime = SystemClock.elapsedRealtime();
-
-        // Start progress monitoring
-        startProgressMonitoring(inputFile.length(), "Encrypting");
-
-        EncryptionResult result = encryptionManager.encryptFile(inputFile, algorithm, null);
-
-        stopProgressionMonitoring();
-
-        if (result.isSuccess()) {
-            lastEncryptedFile = result.getOutputFile();
-            showDetailedResults(result);
-        } else {
-            showResults("Encryption Failed: " + result.getErrorMessage());
+        // Fill buffer with test data
+        for (int i = 0; i < buffer.length; i++) {
+            buffer[i] = (byte) (i % 256);
         }
 
-        runOnUiThread(() -> {
-            setUiEnabled(true);
-            showProgress(false);
-        });
-    }
+        long targetBytes = (long) sizeMB * 1024 * 1024;
+        long written = 0;
 
+        try (BufferedOutputStream bos = new BufferedOutputStream(
+                new FileOutputStream(testFile), BUFFER_SIZE)) {
+
+            while (written < targetBytes) {
+                int toWrite = (int) Math.min(BUFFER_SIZE, targetBytes - written);
+                bos.write(buffer, 0, toWrite);
+                written += toWrite;
+
+                // Update progress
+                int progress = (int) ((written * 100) / targetBytes);
+                updateProgress("Creating test file...", progress);
+            }
+        }
+    }
 
     /**
      * Perform Encryption
-     *
-     * Threading Architecture:
-     * UI Thread = User interaction | status updates | progress display
-     * Background Thread = Encryption work (CPU | IO operations)
-     * Handler = Thread-safe communication back to UI thread
-     *
-     * Background thread is critical:
-     * For Android's main thread must respond within 5 seconds or the system displays
-     * "Application Not Responding" dialog.
      */
     private void performEncryption() {
         setUiEnabled(false);
         showProgress(true);
+        updateStatus("Starting encryption...");
 
         new Thread(() -> {
             try {
@@ -563,8 +454,36 @@ public class MainActivity extends AppCompatActivity {
                 String algorithmName = algorithmDropdown.getText().toString();
                 InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
 
-                // TODO: Update with better encryption capability
-                performStandardEncryption(testFile, algorithm);
+                if (algorithm == null) {
+                    runOnUiThread(() -> {
+                        updateStatus("Algorithm not found: " + algorithmName);
+                        setUiEnabled(true);
+                        showProgress(false);
+                    });
+                    return;
+                }
+
+                // Set up progress callback
+                algorithm.setProgressCallback((bytesProcessed, totalBytes) ->
+                        runOnUiThread(() -> updateProgressBar(bytesProcessed, totalBytes)));
+
+                long startTime = System.currentTimeMillis();
+                EncryptionResult result = encryptionManager.encryptFile(testFile, algorithm, "encrypted_file.enc");
+                long endTime = System.currentTimeMillis();
+
+                // Clear the callback
+                algorithm.setProgressCallback(null);
+
+                runOnUiThread(() -> {
+                    if (result.isSuccess()) {
+                        lastEncryptedFile = result.getOutputFile();
+                        handleEncryptionResult(result);
+                    } else {
+                        updateStatus("Encryption Failed: " + result.getErrorMessage());
+                    }
+                    setUiEnabled(true);
+                    showProgress(false);
+                });
 
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -581,24 +500,18 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-
     /**
      * Perform decryption on background thread
-     *
-     * Note: Currently the encryption requires to be run first to have the file decrypted
-     * TODO: Add file selector to select any file to encrypt
      */
     private void performDecryption() {
         if (lastEncryptedFile == null || !lastEncryptedFile.exists()) {
-            // First must be encrypted
-            //TODO: At the moment just testing file encrypt/decrypt, add file selection to decrypt whenever
-            //TODO: not only after an encryption
-            updateStatus("Use Encrypt first, proper file selection will be added in the future");
+            updateStatus("Use Encrypt first to create a file for decryption");
             return;
         }
 
         setUiEnabled(false);
         showProgress(true);
+        updateStatus("Starting decryption...");
 
         new Thread(() -> {
             try {
@@ -614,33 +527,28 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
-                // Start progress monitor
-                startProgressMonitoring(lastEncryptedFile.length(), "Decrypting");
+                // Set up progress callback
+                algorithm.setProgressCallback((bytesProcessed, totalBytes) ->
+                        runOnUiThread(() -> updateProgressBar(bytesProcessed, totalBytes)));
 
-                //Set up progress callback
-                algorithm.setProgressCallback(new InterfaceEncryptionAlgorithm.ProgressCallback() {
-                    @Override
-                    public void onProgressUpdate(long bytesProcessed, long totalBytes) {
-                        // Update the bytes processed on the main thread
-                        runOnUiThread(() -> updateBytesProcessed(bytesProcessed));
+                EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, "decrypted_file.dat");
+
+                // Clear the callback
+                algorithm.setProgressCallback(null);
+
+                runOnUiThread(() -> {
+                    if (result.isSuccess()) {
+                        showDetailedResults(result);
+                    } else {
+                        showResults("Decryption Failed: " + result.getErrorMessage());
                     }
+                    setUiEnabled(true);
+                    showProgress(false);
                 });
 
-                EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, null);
-
-                algorithm.setProgressCallback(null);
-                stopProgressionMonitoring();
-
-                if (result.isSuccess()) {
-                    showDetailedResults(result);
-                } else {
-                    showResults("Decryption Failed: " + result.getErrorMessage());
-                }
-
             } catch (Exception e) {
-                showResults("Decryption error: " + e);
-            } finally {
                 runOnUiThread(() -> {
+                    showResults("Decryption error: " + e.getMessage());
                     setUiEnabled(true);
                     showProgress(false);
                 });
@@ -648,51 +556,453 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-
     /**
      * Handling encryption/decryption result and displaying detailed metrics
-     *
-     * These help to validate that optimisations are working by:
-     * Showing processing time
-     * Showing throughput
-     * Showing success or not
-     *
-     * @param result Passing the result of the encryption to be processed for display
      */
     private void handleEncryptionResult(EncryptionResult result) {
         if (result.isSuccess()) {
             // Calculate throughput to validate performance
-            long fileSizeMB = result.getFileSizeBytes() / 1024 / 1024;
+            long fileSizeMB = result.getFileSizeBytes() / (1024 * 1024);
             double timeSec = result.getProcessingTimeMs() / 1000.0;
-            double throughputMBs = fileSizeMB / timeSec;
+            double throughputMBs = timeSec > 0 ? fileSizeMB / timeSec : 0;
 
-            @SuppressLint("DefaultLocale")
-            String message = String.format(
-                    "%s SUCCESSFUL!\n\n" +
-                            "Operation: %s\n" +
-                            "Algorithm: %s\n" +
-                            "File Size: %d MB\n" +
-                            "Processing Time: %d ms\n" +
-                            "Throughput: %.2f MB/s\n\n" +
-                            "Input: %s\n" +
-                            "Output: %s\n\n",
-                    result.getOperation(),
-                    result.getAlgorithmName(),
-                    fileSizeMB,
-                    result.getProcessingTimeMs(),
-                    throughputMBs,
-                    result.getInputFile().getName(),
-                    result.getOutputFile().getName());
+            String operation = result.getOperation() != null ? result.getOperation().toString() : "Unknown";
+            String algorithm = result.getAlgorithmName() != null ? result.getAlgorithmName() : "Unknown";
+            String inputFile = result.getInputFile() != null ? result.getInputFile().getName() : "Unknown";
+            String outputFile = result.getOutputFile() != null ? result.getOutputFile().getName() : "Unknown";
+
+            // Use simpler string building to avoid formatting issues
+            String message = "SUCCESSFUL!\n\n" +
+                    "Operation: " + operation + "\n" +
+                    "Algorithm: " + algorithm + "\n" +
+                    "File Size: " + fileSizeMB + " MB\n" +
+                    "Processing Time: " + result.getProcessingTimeMs() + " ms\n" +
+                    "Throughput: " + String.format(Locale.US, "%.2f", throughputMBs) + " MB/s\n\n" +
+                    "Input: " + inputFile + "\n" +
+                    "Output: " + outputFile;
+
             updateStatus(message);
 
         } else {
-            updateStatus(String.format(
-                    "%s FAILED \n\nError: %s\n\n File: %s",
-                    result.getOperation(),
-                    result.getErrorMessage(),
-                    result.getInputFile().getName()
-            ));
+            String operation = result.getOperation() != null ? result.getOperation().toString() : "Unknown";
+            String error = result.getErrorMessage() != null ? result.getErrorMessage() : "Unknown error";
+            String inputFile = result.getInputFile() != null ? result.getInputFile().getName() : "Unknown";
+
+            updateStatus(operation + " FAILED \n\nError: " + error + "\n\n File: " + inputFile);
         }
     }
+
+
+
+    /**
+     * Start progress monitoring with real-time updates
+     */
+//    private void startProgressMonitoring(long totalBytes, String operation) {
+//        totalBytesProcessed = totalBytes;
+//        bytesProcessed.set(0);
+//        startTime = SystemClock.elapsedRealtime();
+//
+//        // Set appropriate progress title based on operation
+//        updateProgress(operation + "...", 0);
+//
+//        progressUpdater = new Runnable() {
+//            @Override
+//            public void run() {
+//                long currentBytes = bytesProcessed.get();
+//                long elapsedMs = SystemClock.elapsedRealtime() - startTime;
+//                double elapsedSec = elapsedMs / 1000.0;
+//
+//                // Calculate progress
+//                int progress = totalBytesProcessed > 0 ?
+//                        (int) ((currentBytes * 100) / totalBytesProcessed) : 0;
+//
+//                // Calculate speed
+//                double speedMBps = 0;
+//                if (elapsedSec > 0) {
+//                    speedMBps = (currentBytes / (1024.0 * 1024.0)) / elapsedSec;
+//                }
+//
+//                // Estimate time remaining
+//                double remainingSec = 0;
+//                if (speedMBps > 0 && currentBytes < totalBytesProcessed) {
+//                    double remainingMB = (totalBytesProcessed - currentBytes) / (1024.0 * 1024.0);
+//                    remainingSec = remainingMB / speedMBps;
+//                }
+//
+//                // Update UI
+//                updateProgressUI(progress, speedMBps, remainingSec);
+//
+//                // Continue updating if not complete
+//                if (currentBytes < totalBytesProcessed) {
+//                    progressHandler.postDelayed(this, 100); // update every 100ms
+//                }
+//            }
+//        };
+//
+//        progressHandler.post(progressUpdater);
+//    }
+
+
+    /**
+     * Updates bytes processed (this is called during encryption/decryption)
+     */
+    //public void updateBytesProcessed(long bytes) {
+        //bytesProcessed.set(bytes);
+    //}
+
+    /**
+     * Get algorithm names for spinner display
+     *
+     * @return Get algorithm names
+     */
+//    private String[] getAlgorithmNames() {
+//        return encryptionManager.getAvailableAlgorithms().stream().map(InterfaceEncryptionAlgorithm::getAlgorithmName).toArray(String[]::new);
+//    }
+
+
+    /**
+     * Update status text on UI thread
+     */
+//    private void updateStatus(String message) {
+//        runOnUiThread(() -> {
+//            if (processStatus != null) {
+//                processStatus.setText(message);
+//            }
+//        });
+//    }
+
+
+    /**
+     * Show results
+     */
+//    private void showResults(String message) {
+//        runOnUiThread(() -> {
+//            if (processStatus != null) {
+//                processStatus.setText(message);
+//            }
+//            if (resultsCard != null) {
+//                resultsCard.setVisibility(View.VISIBLE);
+//            }
+//        });
+//    }
+
+
+    /**
+     * Show detailed results
+     */
+//    private void showDetailedResults(EncryptionResult result) {
+//        long fileSizeMB = result.getFileSizeBytes() / (1024 * 1024);
+//        double timeSec = result.getProcessingTimeMs() / 1000.0;
+//        double throughputMBps = fileSizeMB / timeSec;
+//
+//        @SuppressLint("DefaultLocale") String message = String.format(
+//                "SUCCESSFUL\n\n" +
+//                        "Operation: %s\n" +
+//                        "Algorithm: %s\n" +
+//                        "File Size: %d MB\n" +
+//                        "Time: %.2f seconds\n" +
+//                        "Throughput: %.2f MB/s\n" +
+//                        "Device: %s\n" +
+//                        "Cores Used: %d",
+//                result.getOperation(),
+//                result.getAlgorithmName(),
+//                fileSizeMB, timeSec, throughputMBps,
+//                chipDevice != null ? chipDevice.getText() : "Unknown",
+//                Runtime.getRuntime().availableProcessors()
+//        );
+//
+//        showResults(message);
+//    }
+//
+//
+//    /**
+//     * Show/Hide Progress
+//     */
+//    private void showProgress(boolean show) {
+//        runOnUiThread(() -> {
+//            if (progressBar != null) {
+//                progressCard.setVisibility(show ? View.VISIBLE : View.GONE);
+//            }
+//
+//            if (!show && progressBar != null) {
+//                progressBar.setProgress(0);
+//                if (progressPercentage != null) {
+//                    progressPercentage.setText("0%");
+//                }
+//                if (speedMetric != null) {
+//                    speedMetric.setText("0 MB/s");
+//                }
+//                if (timeRemaining != null) {
+//                    timeRemaining.setText("");
+//                }
+//            }
+//        });
+//    }
+//
+//
+//    /**
+//     * Enable/disable UI controls during operations
+//     */
+//    private void setUiEnabled(boolean enabled) {
+//        runOnUiThread(() -> {
+//            if (btnEncrypt != null) {
+//                btnEncrypt.setEnabled(enabled);
+//            }
+//            if (btnDecrypt != null) {
+//                btnDecrypt.setEnabled(enabled);
+//            }
+//            if (btnBenchmark != null) {
+//                btnBenchmark.setEnabled(enabled);
+//            }
+//            if (algorithmDropdown != null) {
+//                algorithmDropdown.setEnabled(enabled);
+//            }
+//            if (fileSizeSlider != null) {
+//                fileSizeSlider.setEnabled(enabled);
+//            }
+//        });
+//    }
+//
+//
+//    /**
+//     * Run full benchmark
+//     */
+//    private void runFullBenchmark() {
+//        showResults("Starting comprehensive benchmark...");
+//        //TODO: Implement benchmark class
+//        updateStatus("Benchmark functionality will be implemented...");
+//    }
+//
+//
+//    /**
+//     * Clean up resources when activity is destroyed
+//     *
+//     * Ensures proper clean up of:
+//     * ThreadLocal cipher instances
+//     * Cached cryptographic material
+//     * Native resources
+//     */
+//    @Override
+//    protected void onDestroy() {
+//        super.onDestroy();
+//
+////        if(executorService != null) {
+////            executorService.shutdown();
+////        }
+//
+//        if (encryptionManager != null) {
+//            encryptionManager.cleanup();
+//        }
+//        stopProgressionMonitoring();
+//    }
+//
+//
+//    /**
+//     * Create test file with specified size
+//     */
+//    private void createTestFile(int sizeMB) throws IOException {
+//       testFile = new File(getFilesDir(), "test_file_" + sizeMB + "mb.dat");
+//
+//       updateProgress("Creating " + sizeMB + "MB test file...", -1);
+//
+//       // Use larger buffer for file creation
+//       final int BUFFER_SIZE = 1024 * 1024; //1MB buffer
+//       byte[] buffer = new byte[BUFFER_SIZE];
+//
+//       // Fill buffer with test data
+//       for (int i = 0; i < buffer.length; i++) {
+//           buffer[i] = (byte) (i % 256);
+//       }
+//
+//       long targetBytes = (long) sizeMB * 1024 * 1024;
+//       long written = 0;
+//
+//       try (BufferedOutputStream bos = new BufferedOutputStream(
+//               new FileOutputStream(testFile), BUFFER_SIZE)) {
+//
+//           while (written < targetBytes) {
+//               int toWrite = (int) Math.min(BUFFER_SIZE, targetBytes - written);
+//               bos.write(buffer, 0, toWrite);
+//               written += toWrite;
+//
+//               // Update progress
+//               int progress = (int) ((written * 100) / targetBytes);
+//               updateProgress("Creating test file...", progress);
+//           }
+//       }
+//    }
+//
+//
+//
+//    /**
+//     * Perform Encryption
+//     */
+//    private void performEncryption() {
+//        if (testFile == null || !testFile.exists()) {
+//            updateStatus("Test file not available");
+//            return;
+//        }
+//
+//        setUiEnabled(false);
+//        showProgress(true);
+//        updateStatus("Starting encryption...");
+//
+//        new Thread(() -> {
+//            try {
+//                // Get file size from slider
+//                int sizeMB = (int) fileSizeSlider.getValue();
+//
+//                // Create test file
+//                createTestFile(sizeMB);
+//
+//                // Get selected algorithm
+//                String algorithmName = algorithmDropdown.getText().toString();
+//                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
+//
+//                algorithm.setProgressCallback((bytesProcessed, totalBytesProcessed) ->
+//                        runOnUiThread(() -> updateProgressBar(bytesProcessed, totalBytesProcessed)));
+//
+//                long startTime = System.currentTimeMillis();
+//                EncryptionResult result = encryptionManager.encryptFile(testFile, algorithm, null);
+//                long endTime = System.currentTimeMillis();
+//
+//                new Handler(Looper.getMainLooper()).post(() -> {
+//                    if (result.isSuccess()) {
+//                        encryptedFile = result.getOutputFile();
+//                        handleEncryptionResult(result);
+//                    } else {
+//                        updateStatus("Encryption Failed: " + result.getErrorMessage());
+//                    }
+//                    setUiEnabled(true);
+//                });
+//
+//            } catch (Exception e) {
+//                runOnUiThread(() -> {
+//                    showResults("Encryption failed: " + e.getMessage());
+//                    setUiEnabled(true);
+//                    showProgress(false);
+//                });
+//            } finally {
+//                // Clean up test file
+//                if (testFile != null && testFile.exists()) {
+//                    testFile.delete();
+//                }
+//            }
+//        }).start();
+//    }
+//
+//
+//    /**
+//     * Perform decryption on background thread
+//     *
+//     * Note: Currently the encryption requires to be run first to have the file decrypted
+//     * TODO: Add file selector to select any file to encrypt
+//     */
+//    private void performDecryption() {
+//        if (lastEncryptedFile == null || !lastEncryptedFile.exists()) {
+//            // First must be encrypted
+//            //TODO: At the moment just testing file encrypt/decrypt, add file selection to decrypt whenever
+//            //TODO: not only after an encryption
+//            updateStatus("Use Encrypt first, proper file selection will be added in the future");
+//            return;
+//        }
+//
+//        setUiEnabled(false);
+//        showProgress(true);
+//
+//        new Thread(() -> {
+//            try {
+//                String algorithmName = algorithmDropdown.getText().toString();
+//                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
+//
+//                if (algorithm == null) {
+//                    runOnUiThread(() -> {
+//                        showResults("Algorithm not found: " + algorithmName);
+//                        setUiEnabled(true);
+//                        showProgress(false);
+//                    });
+//                    return;
+//                }
+//
+//                // Start progress monitor
+//                startProgressMonitoring(lastEncryptedFile.length(), "Decrypting");
+//
+//                //Set up progress callback
+//                algorithm.setProgressCallback(new InterfaceEncryptionAlgorithm.ProgressCallback() {
+//                    @Override
+//                    public void onProgressUpdate(long bytesProcessed, long totalBytes) {
+//                        // Update the bytes processed on the main thread
+//                        runOnUiThread(() -> updateBytesProcessed(bytesProcessed));
+//                    }
+//                });
+//
+//                EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, null);
+//
+//                algorithm.setProgressCallback(null);
+//                stopProgressionMonitoring();
+//
+//                if (result.isSuccess()) {
+//                    showDetailedResults(result);
+//                } else {
+//                    showResults("Decryption Failed: " + result.getErrorMessage());
+//                }
+//
+//            } catch (Exception e) {
+//                showResults("Decryption error: " + e);
+//            } finally {
+//                runOnUiThread(() -> {
+//                    setUiEnabled(true);
+//                    showProgress(false);
+//                });
+//            }
+//        }).start();
+//    }
+//
+//
+//    /**
+//     * Handling encryption/decryption result and displaying detailed metrics
+//     *
+//     * These help to validate that optimisations are working by:
+//     * Showing processing time
+//     * Showing throughput
+//     * Showing success or not
+//     *
+//     * @param result Passing the result of the encryption to be processed for display
+//     */
+//    private void handleEncryptionResult(EncryptionResult result) {
+//        if (result.isSuccess()) {
+//            // Calculate throughput to validate performance
+//            long fileSizeMB = result.getFileSizeBytes() / 1024 / 1024;
+//            double timeSec = result.getProcessingTimeMs() / 1000.0;
+//            double throughputMBs = fileSizeMB / timeSec;
+//
+//            @SuppressLint("DefaultLocale")
+//            String message = String.format(
+//                    "%s SUCCESSFUL!\n\n" +
+//                            "Operation: %s\n" +
+//                            "Algorithm: %s\n" +
+//                            "File Size: %d MB\n" +
+//                            "Processing Time: %d ms\n" +
+//                            "Throughput: %.2f MB/s\n\n" +
+//                            "Input: %s\n" +
+//                            "Output: %s\n\n",
+//                    result.getOperation(),
+//                    result.getAlgorithmName(),
+//                    fileSizeMB,
+//                    result.getProcessingTimeMs(),
+//                    throughputMBs,
+//                    result.getInputFile().getName(),
+//                    result.getOutputFile().getName());
+//            updateStatus(message);
+//
+//        } else {
+//            updateStatus(String.format(
+//                    "%s FAILED \n\nError: %s\n\n File: %s",
+//                    result.getOperation(),
+//                    result.getErrorMessage(),
+//                    result.getInputFile().getName()
+//            ));
+//        }
+//    }
 }
 

@@ -3,15 +3,19 @@ package com.example.raziel.core.encryption;
 import android.content.Context;
 import android.util.Log;
 
+import com.example.raziel.core.caching.CacheManager;
 import com.example.raziel.core.encryption.algorithms.AES_256;
 import com.example.raziel.core.encryption.algorithms.ChaCha20_Poly1305;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
 import com.example.raziel.core.encryption.models.EncryptionResult;
 import com.example.raziel.core.performance.PerformanceMetrics;
 import com.example.raziel.core.profiler.DeviceProfiler;
-import com.google.crypto.tink.KeyTemplate;
-import com.google.crypto.tink.KeyTemplates;
+import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.Parameters;
+import com.google.crypto.tink.StreamingAead;
+import com.google.crypto.tink.aead.PredefinedAeadParameters;
+import com.google.crypto.tink.streamingaead.AesGcmHkdfStreamingParameters;
 
 import java.io.File;
 import java.security.GeneralSecurityException;
@@ -30,10 +34,9 @@ public class EncryptionManager {
     private final Context context;
     private final KeyManager keyManager;
     private final DeviceProfiler deviceProfiler;
+    private final CacheManager cacheManager;
     private final List<InterfaceEncryptionAlgorithm> availableAlgorithms;
     private final PerformanceMetrics performanceMetrics;
-
-    //TODO: Implement proper storage for key management\
 
     // Temporary keyset storage for supervisor demo
     private KeysetHandle lastEncryptionKey = null;
@@ -45,6 +48,7 @@ public class EncryptionManager {
         this.context = context;
         this.keyManager = new KeyManager(context);
         this.deviceProfiler = new DeviceProfiler(context);
+        this.cacheManager = new CacheManager(context);
         this.performanceMetrics = new PerformanceMetrics();
 
         // Initialising available algorithms
@@ -52,6 +56,8 @@ public class EncryptionManager {
         this.availableAlgorithms = Arrays.asList(new AES_256(context), new ChaCha20_Poly1305(context));
 
         Log.d(TAG, "Encryption Manager initialised with " + availableAlgorithms.size() + " algorithms");
+        Log.d(TAG, "Device Profile: " + deviceProfiler.getPerformanceTier());
+        Log.d(TAG, "Recommended:  " + getRecommendedAlgorithm().getAlgorithmName());
     }
 
     /**
@@ -92,34 +98,29 @@ public class EncryptionManager {
      */
     public void cleanup() {
         Log.d(TAG, "Cleaning up EncryptionManager resources");
+        cacheManager.clearAll();
         lastEncryptionKey = null;
     }
 
     // Intelligent algorithm recommendation based on device capabilities
     public InterfaceEncryptionAlgorithm getRecommendedAlgorithm() {
-        return deviceProfiler.preferAES() ? getAlgorithmByName("AES-256-GCM") : getAlgorithmByName("ChaCha20-Poly1305");
+        return deviceProfiler.preferAES() ? getAlgorithmByName("AES-256-GCM") : getAlgorithmByName("XChaCha20-Poly1305");
     }
 
-    // Select appropriate Tink key template based on algorithm and device capablities
-    private KeyTemplate selectKeyTemplate(InterfaceEncryptionAlgorithm algorithm) throws GeneralSecurityException {
+    // Select appropriate Tink key parameter based on algorithm and device capabilities
+    private Parameters selectKeyParameters(InterfaceEncryptionAlgorithm algorithm) throws GeneralSecurityException {
         int segmentSize = algorithm.getOptimalSegmentSize();
 
         if (algorithm.getAlgorithmName().contains("AES")) {
-            // AES-256-GCm with adaptive segment size
-            if (segmentSize >= 1024 * 1024) {
-                return KeyTemplates.get("AES256_GCM_HKDF_1MB");
-            } else if (segmentSize >= 256 * 1024){
-                return KeyTemplates.get("AES256_GCM_HKDF_4KB");
-            } else {
-                return KeyTemplates.get("AES256_GCM_HKDF_4KB");
-            }
+            return AesGcmHkdfStreamingParameters.builder()
+                    .setKeySizeBytes(32) // 256 bits
+                    .setDerivedAesGcmKeySizeBytes(32) // 256 bits
+                    .setHkdfHashType(AesGcmHkdfStreamingParameters.HashType.SHA256)
+                    .setCiphertextSegmentSizeBytes(segmentSize)
+                    .build();
         } else {
-            // ChaCha20
-            if (segmentSize >= 1024 * 1024) {
-                return KeyTemplates.get("AES256_GCM_HKDF_1MB"); // Tink doesn't have streaming template for ChaCha
-            } else {
-                return KeyTemplates.get("AES256_GCM_HKDF_4KB");
-            }
+            // ChaCha20 uses Aead, not streaming
+            return PredefinedAeadParameters.XCHACHA20_POLY1305;
         }
     }
 
@@ -144,9 +145,19 @@ public class EncryptionManager {
             // Generate output file path
             File outputFile = new File(inputFile.getParent(), outputFileName != null ? outputFileName : inputFile.getName() + ".encrypted");
 
-            // Create keyset for encryption
-            KeyTemplate keyTemplate = selectKeyTemplate(algorithm);
-            KeysetHandle keysetHandle = keyManager.createStreamingKeysetHandle(keyTemplate.toParameters());
+            // Try cache first
+            KeysetHandle keysetHandle = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
+
+            if (keysetHandle == null) {
+                // Cache miss - create new keyset
+                // Create keyset parameters for encryption
+                Parameters parameters = selectKeyParameters(algorithm);
+                keysetHandle = keyManager.createStreamingKeysetHandle(parameters);
+                cacheManager.cacheKeyset(algorithm.getAlgorithmName(), keysetHandle);
+                Log.d(TAG, "Created and cached new keyset for " + algorithm.getAlgorithmName());
+            } else {
+                Log.d(TAG, "Using cached keyset for " + algorithm.getAlgorithmName());
+            }
 
             lastEncryptionKey = keysetHandle;
 
@@ -189,9 +200,31 @@ public class EncryptionManager {
                 return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Input file does not exist", inputFile);
             }
 
-            // For decryption the key needs to be handled properly
-            // TODO: retrieve key from secure storage not generated for testing purposes
-            // Key is generated instead of retrieved to debug the process properly
+            // Check if we have a valid keyset
+            if (lastEncryptionKey == null) {
+                // Try to get from cache first
+                lastEncryptionKey = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
+                if (lastEncryptionKey == null) {
+                    return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT,
+                            "No encryption key available. Encrypt a file first or check cache.", inputFile);
+                }
+                Log.d(TAG, "Retrieved keyset from cache for decryption: " + algorithm.getAlgorithmName());
+            }
+
+            // Validate the keyset
+            try {
+                // Test if we can get a primitive from the keyset
+                if (algorithm.getAlgorithmName().contains("AES")) {
+                    StreamingAead testAead = lastEncryptionKey.getPrimitive(StreamingAead.class);
+                } else {
+                    Aead testAead = lastEncryptionKey.getPrimitive(Aead.class);
+                }
+                Log.d(TAG, "Keyset validation successful for: " + algorithm.getAlgorithmName());
+            } catch (Exception e) {
+                Log.e(TAG, "Keyset validation failed: " + e.getMessage());
+                return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT,
+                        "Invalid encryption key: " + e.getMessage(), inputFile);
+            }
 
 
             if (lastEncryptionKey == null) {
@@ -228,4 +261,8 @@ public class EncryptionManager {
         }
     }
 
+    // Get Cache statistics
+    public CacheManager.CacheStats getCacheStats() {
+        return cacheManager.getStats();
+    }
 }

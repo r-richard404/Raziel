@@ -3,78 +3,118 @@ package com.example.raziel.core.encryption;
 import android.content.Context;
 import android.util.Log;
 
-import com.google.crypto.tink.Aead;
-import com.google.crypto.tink.KeyTemplates;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
+
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.Parameters;
 import com.google.crypto.tink.aead.AeadConfig;
-import com.google.crypto.tink.integration.android.AndroidKeysetManager;
-import com.google.crypto.tink.proto.KeyTemplate;
+import com.google.crypto.tink.aead.PredefinedAeadParameters;
+import com.google.crypto.tink.streamingaead.AesGcmHkdfStreamingParameters;
 import com.google.crypto.tink.streamingaead.StreamingAeadConfig;
 
-import java.io.IOException;
 import java.security.GeneralSecurityException;
 
-// Manages Tink keysets with Android Keystore backing
+/**
+ * KeyManager with hardware-backed security where available
+ * Falls back to software encryption for older devices
+ */
 public class KeyManager {
     private static final String TAG = "KeyManager";
-    private static final String MASTER_KEYSET_NAME = "raziel_master_keyset";
-    private static final String PREF_FILE_NAME = "raziel_key_prefs";
+    private static final String ENCRYPTED_PREF_NAME = "raziel_secure_prefs";
 
     private final Context context;
-    private AndroidKeysetManager keysetManager;
+    private final MasterKey masterKey;
+    private final EncryptedSharedPreferences encryptedSharedPreferences;
 
     public KeyManager(Context context) {
         this.context = context.getApplicationContext();
+        this.masterKey = createMasterKey();
+        this.encryptedSharedPreferences = createEncryptedSharedPreferences();
         initialize();
     }
 
-    // Initialise Tink and register primitives
-    private void initialize() {
+    private MasterKey createMasterKey() {
         try {
-            AeadConfig.register();
-            StreamingAeadConfig.register();
-
-            keysetManager = new AndroidKeysetManager.Builder()
-                    .withSharedPref(context, MASTER_KEYSET_NAME, PREF_FILE_NAME)
-                    .withKeyTemplate(KeyTemplates.get("AES256_GCM"))
-                    .withMasterKeyUri("android-keystore://raziel_master_key")
-                    .build();
-
-            Log.d(TAG, "Tink KeyManager initialised successfully");
-        } catch (GeneralSecurityException | IOException e) {
-            Log.e(TAG, "Failed to initialise KeyManager");
-            throw new RuntimeException("Crypto initialisation failed", e);
+            return new MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to create master key", e);
+            throw new RuntimeException("Master key creation failed", e);
         }
     }
 
-    // Get keyset handle for cryptographic operations
-    public KeysetHandle getKeysetHandle() throws GeneralSecurityException {
-        return keysetManager.getKeysetHandle();
+    // Initialise and register primitives
+    private void initialize() {
+        try {
+            StreamingAeadConfig.register();
+            AeadConfig.register();
+            Log.d(TAG, "Tink initialised successfully");
+
+        } catch (GeneralSecurityException e) {
+            Log.e(TAG, "Failed to initialise Tink");
+            throw new RuntimeException("Tink initialisation failed", e);
+        }
     }
 
-    // Get AEAD primitive for small data encryption
-    public Aead getAead() throws GeneralSecurityException {
-        return getKeysetHandle().getPrimitive(Aead.class);
+    // Secure shared preferences for storing keyset metadata
+    private EncryptedSharedPreferences createEncryptedSharedPreferences() {
+        try {
+            return (EncryptedSharedPreferences) EncryptedSharedPreferences.create(
+                    context,
+                    ENCRYPTED_PREF_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to create encrypted preferences", e);
+            throw new RuntimeException("Secure storage initialisation failed", e);
+        }
     }
 
-    // Create new keyset handle for StreamingAead operations
-    public KeysetHandle createStreamingKeysetHandle(Parameters template) throws GeneralSecurityException {
-        return KeysetHandle.generateNew(template);
+    // Parameter-based key generation for AES streaming
+    public KeysetHandle createAesStreamingKeysetHandle(int segmentSizeBytes) throws GeneralSecurityException {
+        AesGcmHkdfStreamingParameters parameters = AesGcmHkdfStreamingParameters.builder()
+                .setKeySizeBytes(32) // 256bits
+                .setDerivedAesGcmKeySizeBytes(32) // 256 bits
+                .setHkdfHashType(AesGcmHkdfStreamingParameters.HashType.SHA256)
+                .setCiphertextSegmentSizeBytes(segmentSizeBytes)
+                .build();
+
+        return KeysetHandle.generateNew(parameters);
     }
 
-    // Rotate master key
-    public void rotateKeyTemplate(KeyTemplate template) throws GeneralSecurityException, IOException {
-        keysetManager.add(template);
-        Log.d(TAG, "Master key rotated successfully");
+    // Store keyset metadata securely
+    public void storeKeysetMetadata(String keysetId, String metadata) {
+        encryptedSharedPreferences.edit().putString("keyset_" + keysetId, metadata).apply();
     }
 
-    // Clear all keysets (logout/factory reset)
-    public void clearKeysets() {
-        context.getSharedPreferences(PREF_FILE_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .clear()
-                .apply();
-        Log.d(TAG, "All keysets cleared");
+    public String getKeysetMetadata(String keysetId) {
+        return encryptedSharedPreferences.getString("keyset_" + keysetId, null);
+    }
+
+    // Clear all secure data
+    public void clearAllSecureData() {
+        encryptedSharedPreferences.edit().clear().apply();
+        Log.d(TAG, "All secure data cleared");
+    }
+
+    // Parameter-based key generation for ChaCha20
+    public KeysetHandle createChaChaKeysetHandle() throws GeneralSecurityException {
+        return KeysetHandle.generateNew(PredefinedAeadParameters.XCHACHA20_POLY1305);
+    }
+
+    // Generic method to create streaming keyset with parameters
+    public KeysetHandle createStreamingKeysetHandle(Parameters parameters) throws GeneralSecurityException {
+        return KeysetHandle.generateNew(parameters);
     }
 }
+
+
+
+
+
+
+
+
+

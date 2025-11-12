@@ -34,7 +34,6 @@ public interface InterfaceEncryptionAlgorithm {
     // Decrypt file using Tink keyset
     boolean decryptFile(File inputFile, File outputFile, KeysetHandle keysetHandle, byte[] associatedData);
 
-    byte[] generateKey();
 
     // Get optimal segment size for this algorithm
     int getOptimalSegmentSize();
