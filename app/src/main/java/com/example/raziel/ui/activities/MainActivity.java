@@ -66,15 +66,8 @@ public class MainActivity extends AppCompatActivity {
     // Track last encryption output to test decryption function
     private File lastEncryptedFile;
 
-    // Performance Tracking
-    //private long startTime;
-    //private AtomicLong bytesProcessed = new AtomicLong(0);
-    //private long totalBytesProcessed = 0;
     private Handler progressHandler = new Handler(Looper.getMainLooper());
-    //private Runnable progressUpdater;
 
-    //private static final int MAX_THREADS = 4; // For parallel processing
-    //private ExecutorService executorService;
 
 
     @Override
@@ -243,18 +236,6 @@ public class MainActivity extends AppCompatActivity {
         // Set initial description
         fileTypeDescription.setText(fileTypes.get("TXT"));
     }
-
-
-    /**
-     * Stop progress monitoring
-     */
-//    private void stopProgressionMonitoring() {
-//        progressHandler.removeCallbacksAndMessages(null);
-//        if (progressUpdater != null) {
-//            progressHandler.removeCallbacks(progressUpdater);
-//            progressUpdater = null;
-//        }
-//    }
 
 
     /**
@@ -534,10 +515,10 @@ public class MainActivity extends AppCompatActivity {
 
         new Thread(() -> {
             try {
-
                 // Get selected algorithm
                 String algorithmName = algorithmDropdown.getText().toString();
-                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
+                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmName(algorithmName);
+
 
                 if (algorithm == null) {
                     runOnUiThread(() -> {
@@ -568,9 +549,9 @@ public class MainActivity extends AppCompatActivity {
                 // Create encrypted file with appropriate extension
                 String encryptedFileName = "encrypted_" + testFile.getName() + ".raziel";
 
-                long startTime = System.currentTimeMillis();
+                //long startTime = System.currentTimeMillis();
                 EncryptionResult result = encryptionManager.encryptFile(testFile, algorithm, "encrypted_file.enc");
-                long endTime = System.currentTimeMillis();
+                //long endTime = System.currentTimeMillis();
 
                 // Clear the callback
                 algorithm.setProgressCallback(null);
@@ -580,14 +561,16 @@ public class MainActivity extends AppCompatActivity {
                         lastEncryptedFile = result.getOutputFile();
 
                         //testDecryptionVerification(testFile, lastEncryptedFile);
-                        handleEncryptionResult(result);
+                        //handleEncryptionResult(result);
+                        showDetailedResults(result);
 
                         // Log file locations for debugging
                         Log.d("FileLocations", "Original: " + testFile.getAbsolutePath());
                         Log.d("FileLocations", "Encrypted: " + lastEncryptedFile.getAbsolutePath());
 
                     } else {
-                        updateStatus("Encryption Failed: " + result.getErrorMessage());
+                        //updateStatus("Encryption Failed: " + result.getErrorMessage());\
+                        showResults("Decryption Failed: " + result.getErrorMessage());
                     }
                     setUiEnabled(true);
                     showProgress(false);
@@ -624,7 +607,7 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 String algorithmName = algorithmDropdown.getText().toString();
-                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmByName(algorithmName);
+                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmName(algorithmName);
 
                 if (algorithm == null) {
                     runOnUiThread(() -> {
@@ -684,7 +667,7 @@ public class MainActivity extends AppCompatActivity {
                     "Operation: " + operation + "\n" +
                     "Algorithm: " + algorithm + "\n" +
                     "File Size: " + fileSizeMB + " MB\n" +
-                    "Processing Time: " + result.getProcessingTimeMs() + " ms\n" +
+                    "Processing Time: " + timeSec + " seconds\n" +
                     "Throughput: " + String.format(Locale.US, "%.2f", throughputMBs) + " MB/s\n\n" +
                     "Input: " + inputFile + "\n" +
                     "Output: " + outputFile;

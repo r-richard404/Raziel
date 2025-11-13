@@ -3,8 +3,6 @@ package com.example.raziel.core.encryption;
 import android.content.Context;
 import android.util.Log;
 
-import androidx.annotation.RequiresPermission;
-
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
 import com.example.raziel.core.profiler.DeviceProfiler;
 import com.google.crypto.tink.Aead;
@@ -31,6 +29,7 @@ import java.util.Arrays;
 
 /**
  * Core engine that provides adaptive encryption/decryption with performance matching
+ * TODO: Implement other algorithms that don't have chunking/streaming and would benefit from adapter
  */
 public class AdaptiveEncryptionEngine {
     private static final String TAG = "AdaptiveEncryptionEngine";

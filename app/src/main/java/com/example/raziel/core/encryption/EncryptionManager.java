@@ -8,6 +8,7 @@ import com.example.raziel.core.encryption.algorithms.AES_256;
 import com.example.raziel.core.encryption.algorithms.ChaCha20_Poly1305;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
 import com.example.raziel.core.encryption.models.EncryptionResult;
+import com.example.raziel.core.optimisation.AlgorithmSelector;
 import com.example.raziel.core.performance.PerformanceMetrics;
 import com.example.raziel.core.profiler.DeviceProfiler;
 import com.google.crypto.tink.Aead;
@@ -22,23 +23,21 @@ import java.security.GeneralSecurityException;
 import java.util.Arrays;
 import java.util.List;
 
-/** Providing a simple interface to complex encryption subsystem
-* Uses Single Responsibility by managing encryption operations and algorithm selection
-* Dependent on InterfaceEncryptionAlgorithm abstraction
-*/
+/**
+ * Encryption Manager
+ */
 public class EncryptionManager {
-    // Available encryption algorithms
-    // TODO: Left list only with 1 algorithm until the others are implemented
 
     private static final String TAG = "EncryptionManager";
+
     private final Context context;
     private final KeyManager keyManager;
-    private final DeviceProfiler deviceProfiler;
     private final CacheManager cacheManager;
-    private final List<InterfaceEncryptionAlgorithm> availableAlgorithms;
+    private final DeviceProfiler deviceProfiler;
+    private final AlgorithmSelector algorithmSelector;
     private final PerformanceMetrics performanceMetrics;
 
-    // Temporary keyset storage for supervisor demo
+
     private KeysetHandle lastEncryptionKey = null;
 
     /**
@@ -53,59 +52,51 @@ public class EncryptionManager {
 
         // Initialising available algorithms
         // Context is passed for algorithms to adapt to device capabilities
-        this.availableAlgorithms = Arrays.asList(new AES_256(context), new ChaCha20_Poly1305(context));
+        List<InterfaceEncryptionAlgorithm> algorithms = Arrays.asList(new AES_256(context), new ChaCha20_Poly1305(context));
 
-        Log.d(TAG, "Encryption Manager initialised with " + availableAlgorithms.size() + " algorithms");
+        this.algorithmSelector = new AlgorithmSelector(deviceProfiler, algorithms);
+
+        Log.d(TAG, "Encryption Manager initialized");
         Log.d(TAG, "Device Profile: " + deviceProfiler.getPerformanceTier());
-        Log.d(TAG, "Recommended:  " + getRecommendedAlgorithm().getAlgorithmName());
+        Log.d(TAG, "Recommended: " + getRecommendedAlgorithm().getAlgorithmName());
     }
 
-    /**
-     * Get list of available encryption algorithms for UI display
-     */
+
+    // Delegate AlgorithmSelector
     public List<InterfaceEncryptionAlgorithm> getAvailableAlgorithms() {
-        return availableAlgorithms;
+        return algorithmSelector.getAvailableAlgorithms();
     }
 
-    /**
-     * Get current performance metrics
-     */
+    public InterfaceEncryptionAlgorithm getAlgorithmName(String name) {
+        return algorithmSelector.getAlgorithmByName(name);
+    }
+
+    public InterfaceEncryptionAlgorithm getRecommendedAlgorithm() {
+        return algorithmSelector.getRecommendedAlgorithm();
+    }
+
+
+    // Performance Tracking
     public PerformanceMetrics.PerformanceSnapshot getPerformanceMetrics() {
         return performanceMetrics.getSnapshot();
     }
 
-    /**
-     * Reset performance metrics
-     */
     public void resetMetrics() {
         performanceMetrics.reset();
     }
 
-    /**
-     * Find algorithm implementation by name
-     */
-    public InterfaceEncryptionAlgorithm getAlgorithmByName(String name) {
-        for (InterfaceEncryptionAlgorithm algorithm : availableAlgorithms) {
-            if (algorithm.getAlgorithmName().equals(name)) {
-                return algorithm;
-            }
-        }
-        return null;
+
+    // Cache Management
+    public CacheManager.CacheStats getCacheStats() {
+        return cacheManager.getStats();
     }
 
-    /**
-     * Clean up encryption resources when shutting down
-     */
     public void cleanup() {
         Log.d(TAG, "Cleaning up EncryptionManager resources");
         cacheManager.clearAll();
         lastEncryptionKey = null;
     }
 
-    // Intelligent algorithm recommendation based on device capabilities
-    public InterfaceEncryptionAlgorithm getRecommendedAlgorithm() {
-        return deviceProfiler.preferAES() ? getAlgorithmByName("AES-256-GCM") : getAlgorithmByName("XChaCha20-Poly1305");
-    }
 
     // Select appropriate Tink key parameter based on algorithm and device capabilities
     private Parameters selectKeyParameters(InterfaceEncryptionAlgorithm algorithm) throws GeneralSecurityException {
@@ -145,7 +136,7 @@ public class EncryptionManager {
             // Generate output file path
             File outputFile = new File(inputFile.getParent(), outputFileName != null ? outputFileName : inputFile.getName() + ".encrypted");
 
-            // Try cache first
+            // Get or create keyset caching
             KeysetHandle keysetHandle = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
 
             if (keysetHandle == null) {
@@ -229,15 +220,8 @@ public class EncryptionManager {
                         "Invalid encryption key: " + e.getMessage(), inputFile);
             }
 
-
-            if (lastEncryptionKey == null) {
-                return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "No encryption key available. You must encrypt a file" +
-                        "first before decrypting it. This is a limitation until keys are retrieved from secure storage.", inputFile);
-            }
-
             // Debug keyset
             debugKeysetInfo(lastEncryptionKey, "Decryption using");
-
 
             // Generate output file path
             String originalName = inputFile.getName().replace(".encrypted", "");
@@ -267,10 +251,6 @@ public class EncryptionManager {
         }
     }
 
-    // Get Cache statistics
-    public CacheManager.CacheStats getCacheStats() {
-        return cacheManager.getStats();
-    }
 
     private void debugKeysetInfo(KeysetHandle keysetHandle, String operation) {
         try {

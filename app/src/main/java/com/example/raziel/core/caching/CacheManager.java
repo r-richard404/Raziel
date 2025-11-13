@@ -2,137 +2,65 @@ package com.example.raziel.core.caching;
 
 import android.content.Context;
 import android.util.Log;
-import android.util.LruCache;
 
+import com.example.raziel.core.cache.CipherCache;
+import com.example.raziel.core.cache.KeyDerivationCache;
+import com.example.raziel.core.cache.KeysetCache;
 import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.StreamingAead;
 
 import java.security.GeneralSecurityException;
-import java.util.Arrays;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class CacheManager {
     private static final String TAG = "CacheManager";
-    private final ThreadLocal<CipherInstancePool> cipherPools = ThreadLocal.withInitial(CipherInstancePool::new);
-    private final LruCache<String, KeysetHandle> keysetCache;
-    private final ConcurrentHashMap<String, byte[]> keyDerivationCache;
 
-    // Configuration
-    private static final int MAX_KEYSET_CACHE_SIZE = 10;
-    private static final int MAX_KEY_DERIVATION_CACHE = 50;
-
-    private static class CipherInstancePool {
-        private StreamingAead cachedStreamingAead;
-        private Aead cachedAead;
-        private KeysetHandle lastStreamingKeysetHandle;
-        private KeysetHandle lastAeadKeysetHandle;
-
-        StreamingAead getStreamingAead(KeysetHandle keysetHandle) throws GeneralSecurityException {
-            // Reuse if same keyset
-            if (cachedStreamingAead != null && keysetHandle.equals(lastStreamingKeysetHandle)) {
-                return cachedStreamingAead;
-            }
-
-            // Create new instance and cache
-            cachedStreamingAead = keysetHandle.getPrimitive(StreamingAead.class);
-            lastStreamingKeysetHandle = keysetHandle;
-            return cachedStreamingAead;
-        }
-
-        Aead getAead(KeysetHandle keysetHandle) throws GeneralSecurityException {
-            // Reuse if same keyset
-            if (cachedAead != null && keysetHandle.equals(lastAeadKeysetHandle)) {
-                return cachedAead;
-            }
-
-            // Create new instance and cache
-            cachedAead = keysetHandle.getPrimitive(Aead.class);
-            lastAeadKeysetHandle = keysetHandle;
-            return cachedAead;
-        }
-    }
+    private final KeysetCache keysetCache;
+    private final CipherCache cipherCache;
+    private final KeyDerivationCache keyDerivationCache;
 
     public CacheManager(Context context) {
-        // Use 1/8th of available memory for cache
+        this.keysetCache = new KeysetCache();
+        this.cipherCache = new CipherCache();
+        this.keyDerivationCache = new KeyDerivationCache();
+
         int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
-        int cacheSize = maxMemory / 8;
-
-        keysetCache = new LruCache<String, KeysetHandle>(MAX_KEYSET_CACHE_SIZE) {
-            @Override
-            protected int sizeOf(String key, KeysetHandle value) {
-                return 1; // Count each keyset as 1 unit
-            }
-        };
-
-        keyDerivationCache = new ConcurrentHashMap<>(MAX_KEY_DERIVATION_CACHE);
-
-        Log.d(TAG, "CacheManager initialised with memory budget: " + cacheSize + "KB");
+        Log.d(TAG, "CacheManager initialised with memory budget: " + (maxMemory / 8) + "KB");
     }
 
-
-
+    // Keyset caching
     public void cacheKeyset(String algorithm, KeysetHandle keyset) {
-        String cacheKey = algorithm + "_keyset";
-        keysetCache.put(algorithm + "_keyset", keyset);
-        Log.d(TAG, "Cached keyset for: " + algorithm);
+        keysetCache.put(algorithm, keyset);
     }
 
     public KeysetHandle getCachedKeyset(String algorithm) {
-        String cacheKey = algorithm + "_keyset";
-        KeysetHandle keysetHandle = keysetCache.get(cacheKey);
-        if (keysetHandle != null) {
-            Log.d(TAG, "Cache hit for keyset: " + algorithm);
-        }
-        return keysetHandle;
+        return keysetCache.get(algorithm);
     }
 
-    public String generateDerivationKey(String password, String salt) {
-        if (password == null || salt == null) {
-            throw new IllegalArgumentException("Password and salt cannot be null");
-        }
-        return password.hashCode() + ":" + salt;
-    }
-
+    // Key Derivation Caching
     public byte[] cacheKeyDerivation(String password, String salt, byte[] derivedKey) {
-        String cacheKey = generateDerivationKey(password, salt);
-        byte[] cached = keyDerivationCache.get(cacheKey);
+        byte[] cached = keyDerivationCache.get(password, salt);
         if (cached != null) {
-            Log.d(TAG, "Cache hit for key derivation");
-            // Return a defensive copy
-            return Arrays.copyOf(cached, cached.length);
+            return cached;
         }
-
-        // Cache miss - store and return derived key
-        if (derivedKey != null && derivedKey.length > 0) {
-            // Store a defensive copy in cache
-            byte[] cachedCopy = Arrays.copyOf(derivedKey, derivedKey.length);
-            keyDerivationCache.put(cacheKey, cachedCopy);
-
-            // Return a defensive copy to caller
-            return Arrays.copyOf(derivedKey, derivedKey.length);
-        }
-
-        return null;
+        keyDerivationCache.put(password, salt, derivedKey);
+        return derivedKey;
     }
 
-
-    // Get or create StreamingAead instance for thread, avoiding expensive primitive creation overhead
+    // Cipher Instance Caching
     public StreamingAead getOrCreateStreamingAead(KeysetHandle keysetHandle) throws GeneralSecurityException {
-        CipherInstancePool pool = cipherPools.get();
-        return pool.getStreamingAead(keysetHandle);
+        return cipherCache.getOrCreateStreamingAead(keysetHandle);
     }
 
     public Aead getOrCreateAead(KeysetHandle keysetHandle) throws GeneralSecurityException {
-        CipherInstancePool pool = cipherPools.get();
-        return pool.getAead(keysetHandle);
+        return cipherCache.getOrCreateAead(keysetHandle);
     }
 
-    // Clear all caches
+    // Cache Management
     public void clearAll() {
-        keysetCache.evictAll();
+        keysetCache.clear();
+        cipherCache.clear();
         keyDerivationCache.clear();
-        cipherPools.remove();
         Log.d(TAG, "All caches cleared");
     }
 
