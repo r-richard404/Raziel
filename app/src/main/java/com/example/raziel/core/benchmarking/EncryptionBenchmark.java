@@ -1,21 +1,16 @@
 package com.example.raziel.core.benchmarking;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.util.Log;
 
-import com.example.raziel.core.encryption.KeyManager;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
-import com.google.crypto.tink.KeyTemplate;
-import com.google.crypto.tink.KeyTemplates;
 import com.google.crypto.tink.KeysetHandle;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.security.GeneralSecurityException;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 
 /**
@@ -24,22 +19,27 @@ import java.util.List;
 public class EncryptionBenchmark {
     private static final String TAG = "EncryptionBenchmark";
 
-    // Benchmarking parameters
-    private static final int NUM_RUNS = 5;
-    private static final int[] TEST_FILE_SIZES_MB = {1, 10, 20, 30, 40, 50}; // testing a variation of sizes for emulator capabilities
+    // Progress callback interface
+    public interface BenchmarkProgressCallback {
+        void onBenchmarkProgress(int currentStep, int totalSteps, String currentOperation);
+    }
+    private BenchmarkProgressCallback progressCallback;
 
-    private static final int[] TEST_FILE_HARDWARE_SIZES_MB = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500}; // testing on S23 Ultra hardware
+    // Benchmarking configurations
+    private static final int NUM_RUNS = 3;
+    private static final int[] FILE_SIZES_MB = {1, 10, 50, 100, 500, 1000}; // testing a variation of sizes for emulator capabilities
+    private static final String[] FILE_EXTENSIONS = {"txt", "pdf", "jpg", "png", "mp3", "mp4", "zip", "docx"};
 
     private final Context context;
-    private final KeyManager keyManager;
+    private final BenchmarkFileGenerator fileGenerator;
 
     public EncryptionBenchmark(Context context) {
         this.context = context;
-        this.keyManager = new KeyManager(context);
+        this.fileGenerator = new BenchmarkFileGenerator(context);
     }
 
     /**
-     * Result class holding benchmark metrics
+     *  Benchmark Result structure for essential data
      */
     public static class BenchmarkResult {
         public final String algorithmName;
@@ -48,7 +48,7 @@ public class EncryptionBenchmark {
         public final double throughputMBps;
         public final int numRuns;
 
-        public BenchmarkResult(String algorithmName, int fileSizeMB,  double averageTimeMs, int numRuns) {
+        public BenchmarkResult(String algorithmName, int fileSizeMB, double averageTimeMs, int numRuns) {
             this.algorithmName = algorithmName;
             this.fileSizeMB = fileSizeMB;
             this.averageTimeMs = averageTimeMs;
@@ -59,152 +59,232 @@ public class EncryptionBenchmark {
             this.throughputMBps = fileSizeMB / averageTimeSec;
         }
 
-            @SuppressLint("DefaultLocale")
-            @Override
-            public String toString() {
-                return String.format("%s - %dMB: %.2f MB/s (%.0fms avg, %d runs)",
-                        algorithmName, fileSizeMB, throughputMBps, averageTimeMs, numRuns);
-            }
+        @Override
+        public String toString() {
+            return String.format("%s - %dMB: %.2f MB/s (%.0fms avg, %d runs", algorithmName, fileSizeMB, throughputMBps, averageTimeMs, numRuns);
         }
+    }
 
     /**
-     * Create a test file with specified size in MB
-     * Fills with pseudo-random but compressible data (text patterns)
+     * Comprehensive benchmark result for scoring
      */
-    private File createTestFile(int sizeMB) throws IOException {
-        File testFile = new File(context.getFilesDir(), "benchmark_test_" + sizeMB + "mb.txt");
+    public static class ComprehensiveBenchmarkResult {
+        public final String algorithmName;
+        public final Map<String, Map<Integer, BenchmarkResult>> resultsByType;
+        public final double overallScore;
 
-        try (FileOutputStream fos = new FileOutputStream(testFile)) {
-            // Create repeating text pattern for a more realistic input rather than pure random
-            String pattern = "This is benchmark test data for Raziel encryption performance testing. " +
-                    "The quick brown fox jumps over the lazy dog. " +
-                    "Pack my box with five dozen liquor jugs. ";
+        public ComprehensiveBenchmarkResult(String algorithmName) {
+            this.algorithmName = algorithmName;
+            this.resultsByType = new TreeMap<>(); // TreeMap used for sorted display (file types and size)
+            this.overallScore = 0.0;
+        }
 
-            byte[] patternBytes = pattern.getBytes();
-            long targetBytes = (long) sizeMB * 1024 * 1024;
-            long written = 0;
+        public void addResult(String fileType, int sizeMB, BenchmarkResult result) {
+            // TreeMap for sorted file sizes display
+            resultsByType.computeIfAbsent(fileType, k -> new TreeMap<>()).put(sizeMB, result);
+        }
 
-            while (written < targetBytes) {
-                int toWrite = (int) Math.min(patternBytes.length, targetBytes - written);
-                fos.write(patternBytes, 0, toWrite);
-                written += toWrite;
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Benchmark Results  for ").append(algorithmName).append(":\n");
+
+            for (Map.Entry<String, Map<Integer, BenchmarkResult>> typeEntry : resultsByType.entrySet()) {
+                sb.append("\nFile Type: ").append(typeEntry.getKey()).append("\n");
+
+                for (Map.Entry<Integer, BenchmarkResult> sizeEntry : typeEntry.getValue().entrySet()) {
+                    sb.append("  ").append(sizeEntry.getValue().toString()).append("\n");
+                }
+            }
+            return sb.toString();
+        }
+    }
+
+    // === PROGRESS CALLBACK ===
+    public void setProgressCallback(BenchmarkProgressCallback callback) {
+        this.progressCallback = callback;
+    }
+
+    private int calculateTotalSteps(List<InterfaceEncryptionAlgorithm> algorithms) {
+        return algorithms.size() * FILE_EXTENSIONS.length * FILE_SIZES_MB.length * NUM_RUNS;
+    }
+
+
+    // === Benchmark Algorithm ===
+
+    private BenchmarkResult benchmarkFileSizeAndType(InterfaceEncryptionAlgorithm algorithm, int sizeMB, String fileExtension, int currentStep, int totalSteps) throws Exception {
+        long totalTimeMS = 0;
+        int successfulRuns = 0;
+
+        for (int run = 0; run < NUM_RUNS; run++) {
+            try {
+                // Update progress - starting new run
+                if (progressCallback != null) {
+                    int step = currentStep * NUM_RUNS + run;
+                    String operation = String.format("Testing %s - %dMB %s (Run %d/%d)", algorithm.getAlgorithmName(), sizeMB, fileExtension, run + 1, NUM_RUNS);
+                    progressCallback.onBenchmarkProgress(step, totalSteps, operation);
+                }
+
+                // Create test file
+                File testFile = fileGenerator.createBenchmarkFile(sizeMB, fileExtension, algorithm.getAlgorithmName());
+                File encryptedFile = new File(context.getCacheDir(), "bench_enc_" + System.currentTimeMillis() + ".enc");
+                File decryptedFile = new File(context.getCacheDir(), "bench_dec_" + System.currentTimeMillis() + ".dec");
+
+                // Generate keyset for this run
+                KeysetHandle keysetHandle = fileGenerator.createKeysetForAlgorithm(algorithm);
+
+                // Benchmark encryption
+                long startTime = System.currentTimeMillis();
+                boolean encryptSuccess = algorithm.encryptFile(testFile, encryptedFile, keysetHandle, null);
+                long encryptTime = System.currentTimeMillis() - startTime;
+
+                if (encryptSuccess) {
+                    // Benchmark decryption
+                    startTime = System.currentTimeMillis();
+                    boolean decryptSuccess = algorithm.decryptFile(encryptedFile, decryptedFile, keysetHandle, null);
+                    long decryptTime = System.currentTimeMillis() - startTime;
+
+                    if (decryptSuccess) {
+                        // Use average of encrypt and decrypt times
+                        long avgTime = (encryptTime + decryptTime) / 2;
+                        totalTimeMS += avgTime;
+                        successfulRuns++;
+                    }
+                }
+
+                // CleanUp
+                testFile.delete();
+                encryptedFile.delete();
+                decryptedFile.delete();
+
+                // Cool down between runs
+                if (run < NUM_RUNS - 1) {
+                    Thread.sleep(500);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Run " + run + " failed for " + sizeMB + "MB", e);
             }
         }
 
-        return testFile;
+        if (successfulRuns > 0) {
+            double averageTimeMs = (double) totalTimeMS / successfulRuns;
+            return new BenchmarkResult(algorithm.getAlgorithmName(), sizeMB, averageTimeMs, successfulRuns);
+        } else {
+            throw new Exception("All benchmark runs failed for " + sizeMB + "MB");
+        }
     }
 
     /**
      * Run benchmark for an encryption algorithm
      */
-    public List<BenchmarkResult> runBenchmark(InterfaceEncryptionAlgorithm algorithm) {
-        Log.d(TAG, "Starting benchmark for " + algorithm.getAlgorithmName());
+    public Map<String, ComprehensiveBenchmarkResult> runComprehensiveBenchmark(List<InterfaceEncryptionAlgorithm> algorithms) {
+        Log.d(TAG, "Starting benchmark...");
 
-        List<BenchmarkResult> results = new ArrayList<>();
+        Map<String, ComprehensiveBenchmarkResult> results = new HashMap<>();
 
-        for (int sizeMB : TEST_FILE_SIZES_MB) {
-            try {
-                // Create test file
-                File testFile = createTestFile(sizeMB);
+        int totalSteps = calculateTotalSteps(algorithms);
+        int currentStep = 0;
 
-                // Run multiple times for average
-                long totalTimeMs = 0;
-                int successfulRuns = 0;
+        for (InterfaceEncryptionAlgorithm algorithm : algorithms) {
+            Log.d(TAG, "Benchmarking algorithm: " + algorithm.getAlgorithmName());
+            ComprehensiveBenchmarkResult algorithmResult = new ComprehensiveBenchmarkResult(algorithm.getAlgorithmName());
 
-                for (int run = 0; run < NUM_RUNS; run++) {
+            for (String fileExtension : FILE_EXTENSIONS) {
+                Log.d(TAG, "Testing file type: " + fileExtension);
 
-                    // Create keyset for this run
-                    KeyTemplate keyTemplate = KeyTemplates.get("AES256_GCM_HKDF_4KB");
-                    KeysetHandle keysetHandle = keyManager.createStreamingKeysetHandle(keyTemplate.toParameters());
+                for (int sizeMB : FILE_SIZES_MB) {
+                    try {
+                        BenchmarkResult avgResult = benchmarkFileSizeAndType(algorithm, sizeMB, fileExtension, currentStep, totalSteps);
+                        algorithmResult.addResult(fileExtension, sizeMB, avgResult);
 
-                    // Create output file
-                    File outputFile = new File(context.getFilesDir(),
-                            "bench_" + sizeMB + "mb_run" + run + ".enc");
+                        Log.d(TAG, String.format("  %dMB: %.2f MB/s", sizeMB, avgResult.throughputMBps));
 
-                    // Measure encryption time
-                    long startTime = System.currentTimeMillis();
-                    boolean success = algorithm.encryptFile(testFile, outputFile, keysetHandle, null);
-                    long endTime = System.currentTimeMillis();
-
-                    if (success) {
-                        totalTimeMs += (endTime - startTime);
-                        successfulRuns++;
-                    } else {
-                        Log.w(TAG, "Encryption failed for run " + run);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Benchmark failed for " + sizeMB + "MB " + fileExtension, e);
                     }
-
-                    // Clean up
-                    if (outputFile.exists()) {
-                        outputFile.delete();
-                    }
-
-                    // Small delay between runs to prevent thermal throttling
-                    if (run < NUM_RUNS - 1) {
-                        Thread.sleep(100);
-                    }
+                    currentStep++;
                 }
-
-                // Calculate average
-                if (successfulRuns > 0) {
-                    double averageTimeMs = (double) totalTimeMs / successfulRuns;
-                    BenchmarkResult result = new BenchmarkResult(
-                            algorithm.getAlgorithmName(), sizeMB, averageTimeMs, successfulRuns);
-                    results.add(result);
-                    Log.d(TAG, result.toString());
-                }
-
-                // Clean up test file
-                testFile.delete();
-
-            } catch (GeneralSecurityException | IOException | InterruptedException e) {
-                Log.e(TAG, "Benchmark failed for " + sizeMB + "MB", e);
+                results.put(algorithm.getAlgorithmName(), algorithmResult);
+            }
+            // Final progress update
+            if (progressCallback != null) {
+                progressCallback.onBenchmarkProgress(totalSteps, totalSteps, "Benchmark Complete");
             }
         }
-
         return results;
     }
 
+    // === Compare Algorithms ===
+    public static class BenchmarkComparison {
+        public final String algorithm1;
+        public final String algorithm2;
+        public final Map<String, Map<Integer, String>> comparisonByType;
 
-    /**
-     * Compare two algorithms and calculate improvement percentage
-     */
-    public static List<String> compareAlgorithms(List<BenchmarkResult> algorithm1,
-                                                 List<BenchmarkResult> algorithm2) {
-        List<String> comparisons = new ArrayList<>();
+        public BenchmarkComparison(String alg1, String alg2) {
+            this.algorithm1 = alg1;
+            this.algorithm2 = alg2;
+            this.comparisonByType = new TreeMap<>();
+        }
 
-        // Compare matching file sizes
-        for (BenchmarkResult result1 : algorithm1) {
-            for (BenchmarkResult result2 : algorithm2) {
-                if (result1.fileSizeMB == result2.fileSizeMB) {
-                    // Determine which is faster
-                    String fasterAlg;
-                    double percentDiff;
+        public void addComparison(String fileType, int sizeMB, String comparison) {
+            comparisonByType.computeIfAbsent(fileType, k -> new TreeMap<>()).put(sizeMB, comparison);
+        }
 
-                    if (result1.throughputMBps > result2.throughputMBps) {
-                        fasterAlg = result1.algorithmName;
-                        percentDiff = ((result1.throughputMBps - result2.throughputMBps) /
-                                result2.throughputMBps) * 100.0;
-                    } else {
-                        fasterAlg = result2.algorithmName;
-                        percentDiff = ((result2.throughputMBps - result1.throughputMBps) /
-                                result1.throughputMBps) * 100.0;
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Comparison: ").append(algorithm1).append(" vs ").append(algorithm2).append("\n");
+
+            for (Map.Entry<String, Map<Integer, String>> typeEntry : comparisonByType.entrySet()) {
+                sb.append("\n").append(typeEntry.getKey()).append(":\n");
+
+                for (Map.Entry<Integer, String> sizeEntry : typeEntry.getValue().entrySet()) {
+                    sb.append("  ").append(sizeEntry.getKey()).append("MB: ").append(sizeEntry.getValue()).append("\n");
+                }
+            }
+            return sb.toString();
+        }
+    }
+
+    private static String compareTwoResults(BenchmarkResult r1, BenchmarkResult r2) {
+        double percentDiff;
+        String fasterAlg;
+
+        if (r1.throughputMBps > r2.throughputMBps) {
+            fasterAlg = r1.algorithmName;
+            percentDiff = ((r1.throughputMBps - r2.throughputMBps) / r2.throughputMBps) * 100;
+        } else {
+            fasterAlg = r2.algorithmName;
+            percentDiff = ((r2.throughputMBps - r1.throughputMBps) / r1.throughputMBps) * 100;
+        }
+
+        return String.format("%s +%.1f%% (%.1f MB/s vs %.1f MB/s", fasterAlg, percentDiff, r1.throughputMBps, r2.throughputMBps);
+    }
+
+    public static BenchmarkComparison compareAlgorithms(ComprehensiveBenchmarkResult result1, ComprehensiveBenchmarkResult result2) {
+        BenchmarkComparison comparison = new BenchmarkComparison(result1.algorithmName, result2.algorithmName);
+
+        for (String fileType : result1.resultsByType.keySet()) {
+            if (result2.resultsByType.containsKey(fileType)) {
+                Map<Integer, BenchmarkResult> results1 = result1.resultsByType.get(fileType);
+                Map<Integer, BenchmarkResult> results2 = result2.resultsByType.get(fileType);
+
+                for (int sizeMB : results1.keySet()) {
+                    if (results2.containsKey(sizeMB)) {
+                        BenchmarkResult r1 = results1.get(sizeMB);
+                        BenchmarkResult r2 = results2.get(sizeMB);
+
+                        String compare = compareTwoResults(r1, r2);
+                        comparison.addComparison(fileType, sizeMB, compare);
                     }
-
-                    String comparison = String.format(
-                            "%dMB: %s is %.1f%% faster\n" +
-                                    "  %s: %.2f MB/s\n" +
-                                    "  %s: %.2f MB/s",
-                            result1.fileSizeMB, fasterAlg, percentDiff,
-                            result1.algorithmName, result1.throughputMBps,
-                            result2.algorithmName, result2.throughputMBps);
-
-                    comparisons.add(comparison);
-                    break;
                 }
             }
         }
-
-        return comparisons;
+        return comparison;
     }
-  }
+
+    public void cleanUp() {
+        fileGenerator.cleanUpBenchmarkFiles();
+    }
+}
 
