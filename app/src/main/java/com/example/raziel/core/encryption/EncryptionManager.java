@@ -119,8 +119,9 @@ public class EncryptionManager {
     /**
      * Encrypts a file using the specified algorithm
      */
-    public EncryptionResult encryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, String outputFileName) {
+    public EncryptionResult encryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, File outputFile) {
         long startTime = System.nanoTime();
+        long keysetStartTime = System.nanoTime();
 
         try {
             // Input validation
@@ -133,22 +134,32 @@ public class EncryptionManager {
                 return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Input file is empty", inputFile);
             }
 
-            // Generate output file path
-            File outputFile = new File(inputFile.getParent(), outputFileName != null ? outputFileName : inputFile.getName() + ".encrypted");
 
             // Get or create keyset caching
             KeysetHandle keysetHandle = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
 
             if (keysetHandle == null) {
-                // Cache miss - create new keyset
+                // Cache miss - create new keyset and record time
+                long generationStart = System.nanoTime();
                 // Create keyset parameters for encryption
                 Parameters parameters = selectKeyParameters(algorithm);
                 keysetHandle = keyManager.createStreamingKeysetHandle(parameters);
+                long generationTime = System.nanoTime() - generationStart;
+
                 cacheManager.cacheKeyset(algorithm.getAlgorithmName(), keysetHandle);
-                Log.d(TAG, "Created and cached new keyset for " + algorithm.getAlgorithmName());
+                cacheManager.recordKeysetGenerationTime(generationTime);
+                Log.d(TAG, "Created and cached new keyset for " + algorithm.getAlgorithmName() + " in " + generationTime/1_000_000 + "ms");
             } else {
                 Log.d(TAG, "Using cached keyset for " + algorithm.getAlgorithmName());
             }
+
+            // Use cached streaming/chunking
+            if (algorithm.getAlgorithmName().contains("AES")) {
+                StreamingAead streamingAead = cacheManager.getOrCreateStreamingAead(keysetHandle);
+            } else {
+                Aead aead = cacheManager.getOrCreateAead(keysetHandle);
+            }
+
 
             lastEncryptionKey = keysetHandle;
 
@@ -185,7 +196,7 @@ public class EncryptionManager {
     /**
      * Decrypting file using the specified algorithm
      */
-    public EncryptionResult decryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, String outputFileName) {
+    public EncryptionResult decryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, File outputFile) {
         long startTime = System.nanoTime();
 
         try {
@@ -223,9 +234,6 @@ public class EncryptionManager {
             // Debug keyset
             debugKeysetInfo(lastEncryptionKey, "Decryption using");
 
-            // Generate output file path
-            String originalName = inputFile.getName().replace(".encrypted", "");
-            File outputFile = new File(inputFile.getParent(), outputFileName != null ? outputFileName : "decrypted_" + originalName);
 
             // Perform decryption
             boolean success = algorithm.decryptFile(inputFile, outputFile, lastEncryptionKey, null);

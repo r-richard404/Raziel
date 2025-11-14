@@ -14,19 +14,20 @@ import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.raziel.R;
+import com.example.raziel.core.benchmarking.EncryptionBenchmark;
+import com.example.raziel.core.caching.CacheManager;
 import com.example.raziel.core.encryption.EncryptionManager;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
 import com.example.raziel.core.encryption.models.EncryptionResult;
+import com.example.raziel.core.managers.file.ExternalFileManager;
+import com.example.raziel.core.managers.file.FileSelectionManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.slider.Slider;
 
-import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -34,6 +35,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Main Activity for testing encryption performance optimisations
@@ -49,55 +52,68 @@ import java.util.Map;
  * 4. Progress tracking with time estimation
  * 5. Device capability detection
  */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements FileSelectionManager.FileSelectionCallback {
+    private static final String TAG = "MainActivity";
+    private static final int MAX_THREADS = 4;
+    private long lastProgressTime = 0;
+    private long lastProgressBytes = 0;
+    private long operationsStartTime = 0;
+
     // UI Components
     private AutoCompleteTextView algorithmDropdown, fileTypeDropdown;
-    private MaterialButton btnEncrypt, btnDecrypt, btnBenchmark;
+    private MaterialButton btnEncrypt, btnDecrypt, btnBenchmark, btnSelectFile;
     private LinearProgressIndicator progressBar;
-    private TextView processStatus, progressTitle, progressPercentage, fileTypeDescription;
+    private TextView processStatus, progressTitle, progressPercentage, fileTypeDescription, fileInfoText;
     private TextView speedMetric, timeRemaining, fileSizeText;
-    private MaterialCardView progressCard, resultsCard;
+    private MaterialCardView progressCard, resultsCard, fileSelectionCard;
     private Slider fileSizeSlider;
     private Chip chipDevice, chipMemory, chipCores, chipHardwareStatus;
 
     // Core components
     private EncryptionManager encryptionManager;
-    private File testFile;
-    // Track last encryption output to test decryption function
+    private FileSelectionManager fileSelectionManager;
+    private EncryptionBenchmark encryptionBenchmark;
+    private ExternalFileManager externalFileManager;
+    private ExecutorService executorService;
+
+    // State
+    private FileSelectionManager.FileInfo selectedFile;
     private File lastEncryptedFile;
-
-    private Handler progressHandler = new Handler(Looper.getMainLooper());
-
-
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        setupCoreComponents();
         setupEncryptionManager();
         initialiseViews();
+        setupButtonListeners();
         setupFileSizeSlider();
 
-        //Initialise thread pool for large file processing
-        //executorService = Executors.newFixedThreadPool(MAX_THREADS);
+        executorService = Executors.newFixedThreadPool(MAX_THREADS);
     }
 
-    /**
-     * Initialising encryption manager with this activity's context
-     */
-    private void setupEncryptionManager() {
+    // === SETUPS AND CONFIGS ===
+
+    private void setupCoreComponents() {
         encryptionManager = new EncryptionManager(this);
 
-        // Show recommended algorithm
-        InterfaceEncryptionAlgorithm recommended = encryptionManager.getRecommendedAlgorithm();
-        updateStatus("Initialised. Recommended algorithm: " + recommended.getAlgorithmName());
+        externalFileManager = new ExternalFileManager(this);
+        fileSelectionManager = new FileSelectionManager(this, externalFileManager);
+        fileSelectionManager.setCallback(this);
+
+        encryptionBenchmark = new EncryptionBenchmark(this);
+
+        InterfaceEncryptionAlgorithm recommendedAlgorithm = encryptionManager.getRecommendedAlgorithm();
+        updateStatus("Ready - Recommended: " + recommendedAlgorithm.getAlgorithmName());
     }
 
     /**
      * Initialise all UI components
      */
-    private void initialiseViews() {
+    private void findViews() {
         // Algorithm Selection
         algorithmDropdown = findViewById(R.id.algorithmDropdown);
 
@@ -105,7 +121,7 @@ public class MainActivity extends AppCompatActivity {
         btnEncrypt = findViewById(R.id.btnEncrypt);
         btnDecrypt = findViewById(R.id.btnDecrypt);
         btnBenchmark = findViewById(R.id.btnBenchmark);
-        //btnCleanup = findViewById(R.id.btnCleanuo);
+        btnSelectFile = findViewById(R.id.btnSelectFile);
 
         // Progress Components
         progressBar = findViewById(R.id.progressBar);
@@ -114,6 +130,9 @@ public class MainActivity extends AppCompatActivity {
         progressTitle = findViewById(R.id.progressTitle);
         progressPercentage = findViewById(R.id.progressPercentage);
         processStatus = findViewById(R.id.processStatus);
+
+        fileSelectionCard = findViewById(R.id.fileSelectionCard);
+        fileInfoText = findViewById(R.id.fileInfoText);
 
         speedMetric = findViewById(R.id.speedMetric);
         timeRemaining = findViewById(R.id.timeRemaining);
@@ -124,9 +143,6 @@ public class MainActivity extends AppCompatActivity {
         chipCores = findViewById(R.id.chipCores);
         chipHardwareStatus = findViewById(R.id.chipHardwareStatus);
 
-        // Setup device information
-        setupDeviceInfo();
-
         // File Size Components
         fileSizeSlider = findViewById(R.id.fileSizeSlider);
         fileSizeText = findViewById(R.id.fileSizeText);
@@ -135,27 +151,51 @@ public class MainActivity extends AppCompatActivity {
         fileTypeDropdown = findViewById(R.id.fileTypeDropdown);
         fileTypeDescription = findViewById(R.id.fileTypeDescription);
 
-        // Setup File Type Dropdown
-        setupFileTypeDropdown();
+    }
 
-        // Setup algorithm dropdown
+    private void setupButtonListeners() {
+
+        btnSelectFile.setOnClickListener(v -> {
+            if (fileSelectionManager != null) {
+                fileSelectionManager.openFilePicker();
+            } else {
+                Log.e(TAG, "fileSelectionManager is null!");
+                showError("Initialisation Error", "File selection manager not initialised");
+            }
+        });
+        btnEncrypt.setOnClickListener(v -> performEncryption());
+        btnDecrypt.setOnClickListener(v -> performDecryption());
+        btnBenchmark.setOnClickListener(v -> runComprehensiveBenchmark());
+
+        // Cache control buttons
+        MaterialButton btnCacheStats = findViewById(R.id.btnCacheStats);
+        MaterialButton btnClearCache = findViewById(R.id.btnClearCache);
+
+        if (btnCacheStats != null) {
+            btnCacheStats.setOnClickListener(v -> showCachePerformance());
+        }
+
+        if (btnClearCache != null) {
+            btnClearCache.setOnClickListener(v -> clearCache());
+        }
+    }
+
+    private void setupAlgorithmDropdown() {
         List<String> algorithms = new ArrayList<>();
+
         for (InterfaceEncryptionAlgorithm algorithm : encryptionManager.getAvailableAlgorithms()) {
             algorithms.add(algorithm.getAlgorithmName());
         }
+
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, algorithms);
         algorithmDropdown.setAdapter(adapter);
+
         if (!algorithms.isEmpty()) {
-            algorithmDropdown.setText(algorithms.get(0), false);
+            // Set to recommended algorithm
+            InterfaceEncryptionAlgorithm recommended = encryptionManager.getRecommendedAlgorithm();
+            algorithmDropdown.setText(recommended.getAlgorithmName(), false);
         }
-        //algorithmDropdown.setText(algorithms.get(0), false);
-
-        // Button listeners
-        btnEncrypt.setOnClickListener(v -> performEncryption());
-        btnDecrypt.setOnClickListener(v -> performDecryption());
-        btnBenchmark.setOnClickListener(v -> runFullBenchmark());
     }
-
 
     /**
      * Setup device information
@@ -172,8 +212,8 @@ public class MainActivity extends AppCompatActivity {
         if (am != null) {
             ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
             am.getMemoryInfo(memoryInfo);
-            long totalMemoryMB = memoryInfo.totalMem / (1024 * 1024);
-            chipMemory.setText(String.format(Locale.US, "%dMB RAM", totalMemoryMB / 1024));
+            long totalMemoryGB = memoryInfo.totalMem / (1024 * 1024 * 1024);
+            chipMemory.setText(String.format(Locale.US, "%dGB RAM", totalMemoryGB));
         }
 
         // CPU cores
@@ -181,9 +221,26 @@ public class MainActivity extends AppCompatActivity {
         chipCores.setText(String.format(Locale.US, "%d Cores", availableProcesors));
 
         // Hardware Acceleration status
-        chipHardwareStatus.setText("Available");
+        chipHardwareStatus.setText("AES Hardware: " + (encryptionManager.getRecommendedAlgorithm().getAlgorithmName().contains("AES") ? "YES" : "NO"));
     }
 
+    private void initialiseViews() {
+        findViews();
+        setupButtonListeners();
+        setupAlgorithmDropdown();
+        setupDeviceInfo();
+    }
+
+    /**
+     * Initialising encryption manager with this activity's context
+     */
+    private void setupEncryptionManager() {
+        encryptionManager = new EncryptionManager(this);
+
+        // Show recommended algorithm
+        InterfaceEncryptionAlgorithm recommended = encryptionManager.getRecommendedAlgorithm();
+        updateStatus("Initialised. Recommended algorithm: " + recommended.getAlgorithmName());
+    }
 
     /**
      * Setup file size slider with predefined sizes
@@ -198,12 +255,13 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 sizeText = String.format(Locale.US, "%d MB", sizeMB);
             }
-
             fileSizeText.setText(sizeText);
         });
-
         fileSizeSlider.setValue(10);
     }
+
+
+    // === FILE SELECTION ===
 
     /**
      * Setup file type dropdown with supported file types and descriptions
@@ -237,6 +295,36 @@ public class MainActivity extends AppCompatActivity {
         fileTypeDescription.setText(fileTypes.get("TXT"));
     }
 
+    /**
+     * File Selection Callback
+     */
+    @Override
+    public void onFileSelected(FileSelectionManager.FileInfo fileInfo) {
+        this.selectedFile = fileInfo;
+
+        mainHandler.post(() -> {
+            float sizeInMB = fileInfo.size / (1024.0f * 1024.0f);
+            String fileInfoString = String.format(Locale.US,
+                    "Selected: %s (%.2f MB)",
+                    fileInfo.name, sizeInMB);
+
+            if (fileInfoText != null) {
+                fileInfoText.setText(fileInfoString);
+            }
+            if (fileSelectionCard != null){
+                fileSelectionCard.setVisibility(View.VISIBLE);
+            }
+            updateStatus("File selected: " + fileInfo.name);
+        });
+    }
+
+    @Override
+    public void onFileSelectionError(String error) {
+        mainHandler.post(() -> {
+            updateStatus("File selection failed: " + error);
+            showError("File Selection Error", error);
+        });
+    }
 
     /**
      * Update progress UI
@@ -289,26 +377,68 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    // === UI Methods ===
+
     private void updateProgressBar(long bytesProcessed, long totalBytes) {
-        int progress = totalBytes > 0 ? (int) ((bytesProcessed * 100) / totalBytes) : 0;
-        progressBar.setProgress(progress);
+        mainHandler.post(() -> {
+            int progress = totalBytes > 0 ? (int) ((bytesProcessed * 100) / totalBytes) : 0;
 
-        double processedMB = bytesProcessed / 1024.0 / 1024.0;
-        double totalMB = totalBytes / 1024.0 / 1024.0;
+            progressBar.setProgress(progress);
+            progressPercentage.setText(progress + "%");
 
-        String statusText = String.format("Processing: %.1f / %.1f MB (%d%%)",
-                processedMB, totalMB, progress);
-        processStatus.setText(statusText);
+            double processedMB = bytesProcessed / (1024.0 * 1024.0);
+            double totalMB = totalBytes / (1024.0 * 1024.0);
+
+            // Calculate real-time throughput
+            long currentTime = System.currentTimeMillis();
+            if (lastProgressTime > 0) {
+                double timeDiffSec = (currentTime - lastProgressTime) / 1000.0;
+                double bytesDiff = bytesProcessed - lastProgressBytes;
+                double instantThroughputMBps = (bytesDiff / (1024.0 * 1024.0)) / timeDiffSec;
+
+                if (speedMetric != null) {
+                    speedMetric.setText(String.format("%.1f MB/s", instantThroughputMBps));
+                }
+
+                // Estimate time remaining
+                if (bytesProcessed > 0 && timeRemaining != null) {
+                    double bytesPerMs = bytesProcessed / (double)(currentTime - operationsStartTime);
+                    long remainingBytes = totalBytes - bytesProcessed;
+                    double remainingSec = remainingBytes / bytesPerMs / 1000.0;
+
+                    if (remainingSec < 60) {
+                        timeRemaining.setText(String.format("~%.0fs", remainingSec));
+                    } else {
+                        timeRemaining.setText(String.format("~%.1fm", remainingSec / 60));
+                    }
+                }
+            }
+
+            lastProgressTime = currentTime;
+            lastProgressBytes = bytesProcessed;
+
+            String statusText = String.format("Processing: %.1f / %.1f MB (%d%%)",
+                    processedMB, totalMB, progress);
+            processStatus.setText(statusText);
+        });
     }
 
     /**
      * Update status text on UI thread
      */
     private void updateStatus(String message) {
-        runOnUiThread(() -> {
+        mainHandler.post(() -> {
             if (processStatus != null) {
                 processStatus.setText(message);
             }
+        });
+    }
+
+    // Show errors
+    private void showError(String title, String message) {
+        mainHandler.post(() -> {
+            Toast.makeText(MainActivity.this, title + ": " + message, Toast.LENGTH_LONG).show();
+            updateStatus(title + ": " + message);
         });
     }
 
@@ -316,12 +446,82 @@ public class MainActivity extends AppCompatActivity {
      * Show results
      */
     private void showResults(String message) {
-        runOnUiThread(() -> {
-            if (processStatus != null) {
+        mainHandler.post(() -> {
+            if (processStatus != null && resultsCard != null) {
                 processStatus.setText(message);
-            }
-            if (resultsCard != null) {
                 resultsCard.setVisibility(View.VISIBLE);
+
+                Log.d("UI_Debug", "Results card made visible with message: " + message);
+            } else {
+                Log.e("UI_Debug", "processStatus or resultsCard is null!");
+                if (processStatus == null) {
+                    Log.e("UI_Debug", "processStatus is null");
+                }
+                if (resultsCard == null) {
+                    Log.e("UI_Debug", "resultsCard is null");
+                }
+            }
+        });
+    }
+
+    /**
+     * Show/Hide Progress
+     */
+    private void showProgress(boolean show, String title, boolean isBenchmark) {
+        mainHandler.post(() -> {
+            progressCard.setVisibility(show ? View.VISIBLE : View.GONE);
+
+            if (show && title != null) {
+                progressTitle.setText(title);
+            }
+
+            if (show) {
+                if (isBenchmark) {
+                    // Hide MB/s and time remaining for benchmarks
+                    if (speedMetric != null) {
+                        speedMetric.setVisibility(View.GONE);
+                    }
+                    if(timeRemaining != null) {
+                        timeRemaining.setVisibility(View.GONE);
+                    }
+                    // Show percentage for benchmark progress
+                    if (progressPercentage != null) {
+                        progressPercentage.setVisibility(View.VISIBLE);
+                    }
+                } else {
+                    // Show everything for normal operations
+                    if (speedMetric != null) {
+                        speedMetric.setVisibility(View.VISIBLE);
+                        speedMetric.setText("0 MB/s");
+                    }
+                    if (timeRemaining != null) {
+                        timeRemaining.setVisibility(View.VISIBLE);
+                        timeRemaining.setText("");
+                    }
+                    if (progressPercentage != null) {
+                        progressPercentage.setVisibility(View.VISIBLE);
+                    }
+                }
+            }
+
+            if (!show) {
+                progressBar.setProgress(0);
+                progressBar.setIndeterminate(false); // Reset to determinate
+                if (progressPercentage != null) {
+                    progressPercentage.setText("0%");
+                }
+                // Restore visibility when hiding progress
+                if (speedMetric != null) {
+                    speedMetric.setVisibility(View.VISIBLE);
+                    speedMetric.setText("0 MB/s");
+                }
+                if (timeRemaining != null) {
+                    timeRemaining.setVisibility(View.VISIBLE);
+                    timeRemaining.setText("");
+                }
+            } else {
+                // When showing progress, start as indeterminate
+                progressBar.setIndeterminate(true);
             }
         });
     }
@@ -330,7 +530,7 @@ public class MainActivity extends AppCompatActivity {
      * Show detailed results
      */
     private void showDetailedResults(EncryptionResult result) {
-        long fileSizeMB = result.getFileSizeBytes() / (1024 * 1024);
+        double fileSizeMB = result.getFileSizeBytes() / (1024.0 * 1024.0);
         double timeSec = result.getProcessingTimeMs() / 1000.0;
         double throughputMBps = fileSizeMB / timeSec;
 
@@ -338,7 +538,7 @@ public class MainActivity extends AppCompatActivity {
                 "SUCCESSFUL\n\n" +
                         "Operation: %s\n" +
                         "Algorithm: %s\n" +
-                        "File Size: %d MB\n" +
+                        "File Size: %.2f MB\n" +
                         "Time: %.2f seconds\n" +
                         "Throughput: %.2f MB/s\n" +
                         "Device: %s\n" +
@@ -346,42 +546,21 @@ public class MainActivity extends AppCompatActivity {
                 result.getOperation(),
                 result.getAlgorithmName(),
                 fileSizeMB, timeSec, throughputMBps,
-                chipDevice != null ? chipDevice.getText() : "Unknown",
+                chipDevice.getText(),
                 Runtime.getRuntime().availableProcessors()
         );
-
         showResults(message);
-    }
-
-    /**
-     * Show/Hide Progress
-     */
-    private void showProgress(boolean show) {
-        runOnUiThread(() -> {
-            if (progressCard != null) {
-                progressCard.setVisibility(show ? View.VISIBLE : View.GONE);
-            }
-
-            if (!show && progressBar != null) {
-                progressBar.setProgress(0);
-                if (progressPercentage != null) {
-                    progressPercentage.setText("0%");
-                }
-                if (speedMetric != null) {
-                    speedMetric.setText("0 MB/s");
-                }
-                if (timeRemaining != null) {
-                    timeRemaining.setText("");
-                }
-            }
-        });
+        // Also show a toast for immediate feedback
+        Toast.makeText(this,
+                String.format("%s completed: %.1f MB/s", result.getOperation(), throughputMBps),
+                Toast.LENGTH_LONG).show();
     }
 
     /**
      * Enable/disable UI controls during operations
      */
     private void setUiEnabled(boolean enabled) {
-        runOnUiThread(() -> {
+        mainHandler.post(() -> {
             if (btnEncrypt != null) {
                 btnEncrypt.setEnabled(enabled);
             }
@@ -400,13 +579,288 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+
+    // === ENCRYPTION/DECRYPTION ===
+
     /**
-     * Run full benchmark
+     * Perform Encryption on background thread
      */
-    private void runFullBenchmark() {
-        showResults("Starting comprehensive benchmark...");
-        updateStatus("Benchmark functionality will be implemented...");
+    private void performEncryption() {
+        if (selectedFile == null) {
+            showError("No File Selected", "Please select a file first");
+            return;
+        }
+
+        setUiEnabled(false);
+        showProgress(true, "Encrypting...", false);
+
+        // Reset progress tracking
+        operationsStartTime = System.currentTimeMillis();
+        lastProgressTime = operationsStartTime;
+        lastProgressBytes = 0;
+
+        executorService.execute(() -> {
+            try {
+                // Get selected algorithm
+                String algorithmName = algorithmDropdown.getText().toString();
+                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmName(algorithmName);
+
+                if (algorithm == null) {
+                    showError("Algorithm Error", "Algorithm not found: " + algorithmName);
+                    return;
+                }
+
+                algorithm.setProgressCallback(this::updateProgressBar);
+
+
+                String outputFileName = "encrypted_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".raziel";
+                File outputFile = getOutputFileInDownloads(outputFileName);
+                EncryptionResult result = encryptionManager.encryptFile(selectedFile.tempFile, algorithm, outputFile);
+
+                // Debug
+                Log.d("EncryptionDebug", "=== ENCRYPTION RESULT ===");
+                Log.d("EncryptionDebug", "Success: " + result.isSuccess());
+                Log.d("EncryptionDebug", "File size: " + result.getFileSizeBytes());
+                Log.d("EncryptionDebug", "Time: " + result.getProcessingTimeMs());
+                Log.d("EncryptionDebug", "Algorithm: " + result.getAlgorithmName());
+                Log.d("EncryptionDebug", "Operation: " + result.getOperation());
+                Log.d("EncryptionDebug", "Error: " + result.getErrorMessage());
+                Log.d("EncryptionDebug", "Output file: " + result.getOutputFile());
+                Log.d("EncryptionDebug", "Output file exists: " + (result.getOutputFile() != null && result.getOutputFile().exists()));
+                if (result.getOutputFile() != null) {
+                    Log.d("EncryptionDebug", "Output file exists: " + result.getOutputFile().exists());
+                    Log.d("EncryptionDebug", "Output file size: " + result.getOutputFile().length());
+                }
+
+                algorithm.setProgressCallback(null);
+
+
+                mainHandler.post(() -> {
+                    if (result.isSuccess()) {
+                        lastEncryptedFile = result.getOutputFile();
+                        showDetailedResultsWithCache(result);
+
+                        Log.d("UI_Debug", "About to call showDetailedResults");
+                        //showDetailedResults(result);
+                        Log.d("UI_Debug", "After showDetailedResults");
+                        //updateStatus("Encryption completed successfully");
+
+                        // Log file locations for debugging
+                        Log.d("FileLocations", "Original: " + selectedFile.tempFile.getAbsolutePath());
+                        Log.d("FileLocations", "Encrypted: " + lastEncryptedFile.getAbsolutePath());
+
+                    } else {
+                        showError("Encryption Failed", result.getErrorMessage());
+                    }
+                    setUiEnabled(true);
+                    showProgress(false, "", false);
+                });
+
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    showResults("Encryption failed: " + e.getMessage());
+                    setUiEnabled(true);
+                    showProgress(false, "", false);
+                });
+            }
+        });
     }
+
+    /**
+     * Perform decryption on background thread
+     */
+    private void performDecryption() {
+        if (lastEncryptedFile == null || !lastEncryptedFile.exists()) {
+            updateStatus("Use Encrypt first to create a file for decryption");
+            return;
+        }
+        setUiEnabled(false);
+        showProgress(true, "Decrypting...", false);
+
+        executorService.execute(() -> {
+            try {
+                String algorithmName = algorithmDropdown.getText().toString();
+                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmName(algorithmName);
+
+                if (algorithm == null) {
+                    showError("Algorithm Error", "Algorithm not found: " + algorithmName);
+                    return;
+                }
+
+                algorithm.setProgressCallback(this::updateProgressBar);
+
+                String outputFileName = "decrypted_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".dec";
+                File outputFile = getOutputFileInDownloads(outputFileName);
+                EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, outputFile);
+
+                // Debug
+                Log.d("DecryptionDebug", "=== DECRYPTION RESULT ===");
+                Log.d("DecryptionDebug", "Success: " + result.isSuccess());
+                Log.d("DecryptionDebug", "File size: " + result.getFileSizeBytes());
+                Log.d("DecryptionDebug", "Time: " + result.getProcessingTimeMs());
+                Log.d("DecryptionDebug", "Algorithm: " + result.getAlgorithmName());
+                Log.d("DecryptionDebug", "Operation: " + result.getOperation());
+                Log.d("DecryptionDebug", "Error: " + result.getErrorMessage());
+                Log.d("DecryptionDebug", "Output file: " + result.getOutputFile());
+                Log.d("DecryptionDebug", "Output file exists: " + (result.getOutputFile() != null && result.getOutputFile().exists()));
+                if (result.getOutputFile() != null) {
+                    Log.d("DecryptionDebug", "Output file exists: " + result.getOutputFile().exists());
+                    Log.d("DecryptionDebug", "Output file size: " + result.getOutputFile().length());
+                }
+
+                algorithm.setProgressCallback(null);
+
+                mainHandler.post(() -> {
+                    if (result.isSuccess()) {
+                        showDetailedResults(result);
+                        //updateStatus("Decryption competed successfully");
+                    } else {
+                        showError("Decryption Failed", result.getErrorMessage());
+                    }
+                    setUiEnabled(true);
+                    showProgress(false, "", false);
+                });
+
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    showResults("Decryption error: " + e.getMessage());
+                    setUiEnabled(true);
+                    showProgress(false, "", false);
+                });
+            }
+        });
+    }
+
+
+    // === BENCHMARK ===
+
+    private void displayBenchmarkResults(Map<String, EncryptionBenchmark.ComprehensiveBenchmarkResult> results) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== COMPREHENSIVE BENCHAMRK RESULTS ===\n\n");
+
+        for (EncryptionBenchmark.ComprehensiveBenchmarkResult result : results.values()) {
+            sb.append(result.toString()).append("\n");
+        }
+
+        // Compare results
+        if (results.size() == 2) {
+            List<EncryptionBenchmark.ComprehensiveBenchmarkResult> resultList = new ArrayList<>(results.values());
+
+            EncryptionBenchmark.BenchmarkComparison comparison = EncryptionBenchmark.compareAlgorithms(resultList.get(0), resultList.get(1));
+            sb.append("\n").append(comparison.toString());
+        }
+        showResults(sb.toString());
+    }
+
+    private void runComprehensiveBenchmark() {
+        setUiEnabled(false);
+        showProgress(true, "Running Comprehensive Benchmark...", true);
+
+        executorService.execute(() -> {
+            try {
+                List<InterfaceEncryptionAlgorithm> algorithms = encryptionManager.getAvailableAlgorithms();
+                Map<String, EncryptionBenchmark.ComprehensiveBenchmarkResult> results = encryptionBenchmark.runComprehensiveBenchmark(algorithms);
+
+                mainHandler.post(() -> {
+                    displayBenchmarkResults(results);
+                    setUiEnabled(true);
+                    showProgress(false, "", true);
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    showError("Benchmark Failed", e.getMessage());
+                    setUiEnabled(true);
+                    showProgress(false, "", true);
+                });
+            }
+        });
+    }
+
+    // === CACHE BENCHMARK
+    /**
+     * Show cache performance metrics
+     */
+    private void showCachePerformance() {
+        CacheManager.CacheStats stats = encryptionManager.getCacheStats();
+
+        String cacheMessage = String.format(Locale.US,
+                "=== CACHE PERFORMANCE ===\n\n" +
+                        "Keyset Cache: %d hits, %d misses (%.1f%%)\n" +
+                        "Cipher Cache: %d hits, %d misses (%.1f%%)\n" +
+                        "Key Derivation: %d hits, %d misses (%.1f%%)\n\n" +
+                        "Performance Impact:\n" +
+                        "• Keyset generation: %dms vs <1ms cached\n" +
+                        "• Cipher creation: %dms vs <1ms cached\n" +
+                        "• Overall speedup: ~%dx faster",
+                stats.keysetHits, stats.keysetMisses, stats.keysetHitRate,
+                stats.cipherHits, stats.cipherMisses, stats.cipherHitRate,
+                stats.keyDerivationHits, stats.keyDerivationMisses, stats.keyDerivationHitRate,
+                stats.avgKeysetGenerationTimeMs,
+                stats.avgCipherCreationTimeMs,
+                Math.max(10, stats.avgKeysetGenerationTimeMs / 10) // Estimated speedup
+        );
+
+        showResults(cacheMessage);
+    }
+
+    /**
+     * Clear all caches and show impact
+     */
+    private void clearCache() {
+        if (encryptionManager != null) {
+            encryptionManager.cleanup(); // This should call cacheManager.clearAll()
+            updateStatus("All caches cleared. Next operations will be slower.");
+
+            // Show cache stats after clear
+            mainHandler.postDelayed(this::showCachePerformance, 1000);
+        }
+    }
+
+    /**
+     * Enhanced detailed results with cache info
+     */
+    private void showDetailedResultsWithCache(EncryptionResult result) {
+        double fileSizeMB = result.getFileSizeBytes() / (1024.0 * 1024.0);
+        double timeSec = result.getProcessingTimeMs() / 1000.0;
+        double throughputMBps = fileSizeMB / timeSec;
+
+        // Get cache stats
+        CacheManager.CacheStats cacheStats = encryptionManager.getCacheStats();
+
+        @SuppressLint("DefaultLocale") String message = String.format(
+                "ENCRYPTION SUCCESSFUL\n\n" +
+                        "Performance Metrics:\n" +
+                        "• File Size: %.2f MB\n" +
+                        "• Time: %.2f seconds\n" +
+                        "• Throughput: %.2f MB/s\n" +
+                        "• Algorithm: %s\n\n" +
+                        "Cache Performance:\n" +
+                        "• Keyset: %d/%d (%.1f%% hit rate)\n" +
+                        "• Cipher: %d/%d (%.1f%% hit rate)\n" +
+                        "• Estimated cache speedup: ~%dx\n\n" +
+                        "Device: %s (%d cores)",
+                fileSizeMB, timeSec, throughputMBps,
+                result.getAlgorithmName(),
+                cacheStats.keysetHits, cacheStats.keysetHits + cacheStats.keysetMisses, cacheStats.keysetHitRate,
+                cacheStats.cipherHits, cacheStats.cipherHits + cacheStats.cipherMisses, cacheStats.cipherHitRate,
+                Math.max(10, cacheStats.avgKeysetGenerationTimeMs / 10),
+                chipDevice.getText(),
+                Runtime.getRuntime().availableProcessors()
+        );
+
+        showResults(message);
+    }
+
+    // Add a button to show cache stats
+    private void addCacheStatsButton() {
+        MaterialButton btnCacheStats = findViewById(R.id.btnCacheStats);
+        if (btnCacheStats != null) {
+            btnCacheStats.setOnClickListener(v -> showCachePerformance());
+        }
+    }
+
+
+    // === UTILITY METHODS ===
 
     /**
      * Clean up resources when activity is destroyed
@@ -418,7 +872,7 @@ public class MainActivity extends AppCompatActivity {
         if (encryptionManager != null) {
             encryptionManager.cleanup();
         }
-        progressHandler.removeCallbacksAndMessages(null);
+        mainHandler.removeCallbacksAndMessages(null);
     }
 
     // Get easier access on real hardware device testing
@@ -428,360 +882,6 @@ public class MainActivity extends AppCompatActivity {
             downloadsDir.mkdirs();
         }
         return new File(downloadsDir, fileName);
-    }
-
-    // Initialise different file types for testing based on patterns
-    private String getTestPatternForFileType(String fileExtension) {
-        switch (fileExtension.toLowerCase()) {
-            case "txt":
-                return "This is a test text file for Raziel encryption testing. " +
-                        "The quick brown fox jumps over the lazy dog. " +
-                        "Encryption test pattern - File created at: " + System.currentTimeMillis() + " ";
-            case "jpg":
-            case "jpeg":
-                // Simple JPEG header pattern, not real but recognised by extension and data
-                return "JPEG_TEST_DATA_" + System.currentTimeMillis() + "_RAZIEL_ENCRYPTION_TEST_PATTERN_";
-            case "png":
-                return "PNG_TEST_DATA_" + System.currentTimeMillis() + "_RAZIEL_ENCRYPTION_TEST_PATTERN_";
-            case "pdf":
-                return "%PDF_TEST_VERISON_RAZIEL_ENCRYPTION_TEST_" + System.currentTimeMillis() + " ";
-            case "mp4":
-                return "MP4_TEST_DATA_" + System.currentTimeMillis() + "_RAZIEL_ENCRYPTION_TEST_PATTERN_";
-            default:
-                return "RAZIEL_ENCRYPTION_TEST_FILE_" + System.currentTimeMillis() + "_TEST_DATA_PATTERN_";
-        }
-    }
-
-    /**
-     * Create test file with specified size
-     */
-    private File createTestFile(int sizeMB, String fileExtension, String algorithmName) throws IOException {
-        String timeStamp = String.valueOf(System.currentTimeMillis());
-        String fileName = "test_file_" + sizeMB + "mb_" + timeStamp + "_" + algorithmName + "." + fileExtension;
-        //testFile = new File(getFilesDir(), "test_file_" + sizeMB + "mb.dat");
-
-        // Save to Downloads directory for easy access on hardware device testing
-        File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-        File testFile = new File(downloadsDir, fileName);
-
-        updateProgress("Creating " + sizeMB + "MB test file...", -1);
-
-        // Use larger buffer for file creation
-        final int BUFFER_SIZE = 1024 * 1024; //1MB buffer
-        byte[] buffer = new byte[BUFFER_SIZE];
-
-        // Fill with different patterns based on file type
-        String pattern = getTestPatternForFileType(fileExtension);
-        byte[] patternBytes = pattern.getBytes();
-
-        long targetBytes = (long) sizeMB * 1024 * 1024;
-        long written = 0;
-
-        try (BufferedOutputStream bos = new BufferedOutputStream(
-                new FileOutputStream(testFile), BUFFER_SIZE)) {
-
-            // Get appropriate content pattern for file type
-            String header = generateFileHeader(fileExtension, sizeMB);
-            byte[] headerBytes = header.getBytes();
-
-            bos.write(headerBytes);
-            written += headerBytes.length;
-
-            // Fill the rest of the file with pattern
-            while (written < targetBytes) {
-                int toWrite = (int) Math.min(BUFFER_SIZE, targetBytes - written);
-                bos.write(buffer, 0, toWrite);
-                written += toWrite;
-
-                // Update progress occasionally
-                if (written % (5 * 1024 * 1024) == 0) {  // Every 5MB
-                    int progress = (int) ((written * 100) / targetBytes);
-                    updateProgress("Creating test file...", progress);
-                }
-
-            }
-        }
-        Log.d("FileDebug", "Test file created: " + testFile.getAbsolutePath() + ", Size: " + testFile.length() + " bytes, Type: " + fileExtension);
-        return testFile;
-    }
-
-    /**
-     * Perform Encryption
-     */
-    private void performEncryption() {
-        setUiEnabled(false);
-        showProgress(true);
-        updateStatus("Starting encryption...");
-
-        new Thread(() -> {
-            try {
-                // Get selected algorithm
-                String algorithmName = algorithmDropdown.getText().toString();
-                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmName(algorithmName);
-
-
-                if (algorithm == null) {
-                    runOnUiThread(() -> {
-                        updateStatus("Algorithm not found: " + algorithmName);
-                        setUiEnabled(true);
-                        showProgress(false);
-                    });
-                    return;
-                }
-
-                // Get file size from slider
-                int sizeMB = (int) fileSizeSlider.getValue();
-
-                // Get file type from Dropdown
-                String fileType = fileTypeDropdown.getText().toString();
-                if (fileType == null || fileType.isEmpty()) {
-                    fileType = "TXT"; // Default
-                }
-
-                // Create test file
-                //createTestFile(sizeMB);
-                File testFile = createTestFile(sizeMB, fileType, algorithmName);
-
-                // Set up progress callback
-                algorithm.setProgressCallback((bytesProcessed, totalBytes) ->
-                        runOnUiThread(() -> updateProgressBar(bytesProcessed, totalBytes)));
-
-                // Create encrypted file with appropriate extension
-                String encryptedFileName = "encrypted_" + testFile.getName() + ".raziel";
-
-                //long startTime = System.currentTimeMillis();
-                EncryptionResult result = encryptionManager.encryptFile(testFile, algorithm, "encrypted_file.enc");
-                //long endTime = System.currentTimeMillis();
-
-                // Clear the callback
-                algorithm.setProgressCallback(null);
-
-                runOnUiThread(() -> {
-                    if (result.isSuccess()) {
-                        lastEncryptedFile = result.getOutputFile();
-
-                        //testDecryptionVerification(testFile, lastEncryptedFile);
-                        //handleEncryptionResult(result);
-                        showDetailedResults(result);
-
-                        // Log file locations for debugging
-                        Log.d("FileLocations", "Original: " + testFile.getAbsolutePath());
-                        Log.d("FileLocations", "Encrypted: " + lastEncryptedFile.getAbsolutePath());
-
-                    } else {
-                        //updateStatus("Encryption Failed: " + result.getErrorMessage());\
-                        showResults("Decryption Failed: " + result.getErrorMessage());
-                    }
-                    setUiEnabled(true);
-                    showProgress(false);
-                });
-
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    showResults("Encryption failed: " + e.getMessage());
-                    setUiEnabled(true);
-                    showProgress(false);
-                });
-            } finally {
-                // Clean up test file
-                if (testFile != null && testFile.exists()) {
-                    testFile.delete();
-                }
-            }
-        }).start();
-    }
-
-    /**
-     * Perform decryption on background thread
-     */
-    private void performDecryption() {
-        if (lastEncryptedFile == null || !lastEncryptedFile.exists()) {
-            updateStatus("Use Encrypt first to create a file for decryption");
-            return;
-        }
-
-        setUiEnabled(false);
-        showProgress(true);
-        updateStatus("Starting decryption...");
-
-        new Thread(() -> {
-            try {
-                String algorithmName = algorithmDropdown.getText().toString();
-                InterfaceEncryptionAlgorithm algorithm = encryptionManager.getAlgorithmName(algorithmName);
-
-                if (algorithm == null) {
-                    runOnUiThread(() -> {
-                        showResults("Algorithm not found: " + algorithmName);
-                        setUiEnabled(true);
-                        showProgress(false);
-                    });
-                    return;
-                }
-
-                // Set up progress callback
-                algorithm.setProgressCallback((bytesProcessed, totalBytes) ->
-                        runOnUiThread(() -> updateProgressBar(bytesProcessed, totalBytes)));
-
-                EncryptionResult result = encryptionManager.decryptFile(lastEncryptedFile, algorithm, "decrypted_file.dat");
-
-                // Clear the callback
-                algorithm.setProgressCallback(null);
-
-                runOnUiThread(() -> {
-                    if (result.isSuccess()) {
-                        showDetailedResults(result);
-                    } else {
-                        showResults("Decryption Failed: " + result.getErrorMessage());
-                    }
-                    setUiEnabled(true);
-                    showProgress(false);
-                });
-
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    showResults("Decryption error: " + e.getMessage());
-                    setUiEnabled(true);
-                    showProgress(false);
-                });
-            }
-        }).start();
-    }
-
-    /**
-     * Handling encryption/decryption result and displaying detailed metrics
-     */
-    private void handleEncryptionResult(EncryptionResult result) {
-        if (result.isSuccess()) {
-            // Calculate throughput to validate performance
-            long fileSizeMB = result.getFileSizeBytes() / (1024 * 1024);
-            double timeSec = result.getProcessingTimeMs() / 1000.0;
-            double throughputMBs = timeSec > 0 ? fileSizeMB / timeSec : 0;
-
-            String operation = result.getOperation() != null ? result.getOperation().toString() : "Unknown";
-            String algorithm = result.getAlgorithmName() != null ? result.getAlgorithmName() : "Unknown";
-            String inputFile = result.getInputFile() != null ? result.getInputFile().getName() : "Unknown";
-            String outputFile = result.getOutputFile() != null ? result.getOutputFile().getName() : "Unknown";
-
-            // Use simpler string building to avoid formatting issues
-            String message = "SUCCESSFUL!\n\n" +
-                    "Operation: " + operation + "\n" +
-                    "Algorithm: " + algorithm + "\n" +
-                    "File Size: " + fileSizeMB + " MB\n" +
-                    "Processing Time: " + timeSec + " seconds\n" +
-                    "Throughput: " + String.format(Locale.US, "%.2f", throughputMBs) + " MB/s\n\n" +
-                    "Input: " + inputFile + "\n" +
-                    "Output: " + outputFile;
-
-            updateStatus(message);
-
-        } else {
-            String operation = result.getOperation() != null ? result.getOperation().toString() : "Unknown";
-            String error = result.getErrorMessage() != null ? result.getErrorMessage() : "Unknown error";
-            String inputFile = result.getInputFile() != null ? result.getInputFile().getName() : "Unknown";
-
-            updateStatus(operation + " FAILED \n\nError: " + error + "\n\n File: " + inputFile);
-        }
-    }
-
-    /**
-     * Generate appropriate file header based on file type
-     */
-    private String generateFileHeader(String fileExtension, int sizeMB) {
-        String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
-
-        switch (fileExtension.toUpperCase()) {
-            case "TXT":
-                return "RAZIEL ENCRYPTION TEST - TEXT FILE\n" +
-                        "Created: " + timestamp + "\n" +
-                        "Size: " + sizeMB + "MB\n" +
-                        "Purpose: Encryption performance testing\n" +
-                        "Content: The quick brown fox jumps over the lazy dog.\n" +
-                        "Repeat pattern below:\n" +
-                        "=" .repeat(50) + "\n";
-
-            case "PDF":
-                return "%PDF-1.4\n" +
-                        "% Raziel Test PDF Document\n" +
-                        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
-                        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" +
-                        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n" +
-                        "4 0 obj\n<< /Length 100 >>\nstream\n" +
-                        "BT /F1 12 Tf 72 720 Td (RAZIEL ENCRYPTION TEST PDF) Tj ET\n" +
-                        "endstream\nendobj\n" +
-                        "xref\n0 5\n" +
-                        "0000000000 65535 f \n" +
-                        "0000000009 00000 n \n" +
-                        "0000000058 00000 n \n" +
-                        "0000000115 00000 n \n" +
-                        "0000000234 00000 n \n" +
-                        "trailer\n<< /Size 5 /Root 1 0 R >>\n" +
-                        "startxref\n300\n%%EOF\n";
-
-            case "JPG":
-                return "\u00FF\u00D8\u00FF\u00E0" + // JPEG Start
-                        "RAZIEL TEST JPEG IMAGE - " + timestamp +
-                        " - Size: " + sizeMB + "MB - This is simulated JPEG data for encryption testing.";
-
-            case "PNG":
-                return "\u0089PNG\r\n\u001a\n" + // PNG Start
-                        "RAZIEL TEST PNG IMAGE - " + timestamp +
-                        " - Size: " + sizeMB + "MB - Simulated PNG data for encryption testing.";
-
-            case "MP3":
-                return "ID3" + // MP3 Start
-                        "RAZIEL TEST MP3 AUDIO - " + timestamp +
-                        " - Size: " + sizeMB + "MB - Simulated audio data for encryption testing.";
-
-            case "MP4":
-                return "ftypmp42" + // MP4 Start
-                        "RAZIEL TEST MP4 VIDEO - " + timestamp +
-                        " - Size: " + sizeMB + "MB - Simulated video data for encryption testing.";
-
-            case "DOCX":
-                return "PK\u0003\u0004" + // ZIP header (DOCX is a zip)
-                        "[Content_Types].xml" +
-                        "RAZIEL TEST DOCX DOCUMENT - " + timestamp;
-
-            case "ZIP":
-                return "PK\u0003\u0004" + // ZIP header
-                        "RAZIEL TEST ZIP ARCHIVE - " + timestamp +
-                        " - Contains simulated compressed data for encryption testing.";
-
-            default:
-                return "RAZIEL ENCRYPTION TEST FILE\nType: " + fileExtension +
-                        "\nCreated: " + timestamp + "\nSize: " + sizeMB + "MB\n";
-        }
-    }
-
-    /**
-     * Generate content pattern based on file type
-     */
-    private String generateContentPattern(String fileExtension) {
-        switch (fileExtension.toUpperCase()) {
-            case "TXT":
-                return "Encryption test pattern line - ABCDEFGHIJKLMNOPQRSTUVWXYZ - 0123456789 - " +
-                        "The quick brown fox jumps over the lazy dog. ";
-
-            case "PDF":
-                return "stream\nBT /F1 10 Tf 50 700 Td (Encryption test content line: PDF document simulation) Tj ET\nendstream\n";
-
-            case "JPG":
-            case "PNG":
-                return "IMAGE_DATA_BLOCK[" + System.currentTimeMillis() + "]_RAZIEL_ENCRYPTION_TEST_PATTERN_";
-
-            case "MP3":
-            case "MP4":
-                return "MEDIA_DATA_FRAME[" + System.currentTimeMillis() + "]_AUDIO_VIDEO_TEST_PATTERN_";
-
-            case "DOCX":
-                return "<w:p><w:r><w:t>Encryption test paragraph for DOCX document simulation.</w:t></w:r></w:p>";
-
-            case "ZIP":
-                return "COMPRESSED_DATA_BLOCK[" + System.currentTimeMillis() + "]_ZIP_ARCHIVE_TEST_CONTENT_";
-
-            default:
-                return "TEST_DATA_PATTERN[" + System.currentTimeMillis() + "]_FILE_TYPE_" + fileExtension + "_";
-        }
     }
 }
 

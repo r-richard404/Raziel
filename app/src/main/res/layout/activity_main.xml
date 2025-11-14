@@ -148,6 +148,48 @@
 
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- File Selection Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/fileSelectionCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="8dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Selected File"
+                        android:textStyle="bold"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:padding="8dp"/>
+
+                    <TextView
+                        android:id="@+id/fileInfoText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="No file selected"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:padding="8dp"/>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- File Selection Button -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSelectFile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="8dp"
+                android:text="Select File"/>
+
             <!-- File Size Selection -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -264,9 +306,42 @@
                     android:text="DECRYPT"
                     android:layout_marginStart="8dp"
                     app:icon="@drawable/ic_launcher_foreground"
-                    style="@style/Widget.Material3.Button.OutlinedButton"/>\
+                    style="@style/Widget.Material3.Button.OutlinedButton"/>
+
+
 
             </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="16dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCacheStats"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:text="Show Cache Stats"
+                    app:icon="@drawable/ic_launcher_foreground"
+                    android:layout_marginEnd="8dp"
+                    style="@style/Widget.Material3.Button.TonalButton"/>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnClearCache"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="Clear Cache"
+                    app:icon="@drawable/ic_launcher_foreground"
+                    style="@style/Widget.Material3.Button.OutlinedButton"/>
+
+            </LinearLayout>
+
+
+
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBenchmark"
