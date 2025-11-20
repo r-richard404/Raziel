@@ -24,7 +24,7 @@ public class KeysetCache {
      */
     public void put(String algorithm, KeysetHandle keyset) {
         String cacheKey = algorithm + "_keyset";
-        cache.put(algorithm + "_keyset", keyset);
+        cache.put(cacheKey, keyset);
         Log.d(TAG, "Cached keyset for: " + algorithm);
     }
 

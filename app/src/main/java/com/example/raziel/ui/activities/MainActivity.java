@@ -19,7 +19,6 @@ import com.example.raziel.core.caching.CacheManager;
 import com.example.raziel.core.encryption.EncryptionManager;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
 import com.example.raziel.core.encryption.models.EncryptionResult;
-import com.example.raziel.core.managers.file.ExternalFileManager;
 import com.example.raziel.core.managers.file.FileSelectionManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
@@ -31,7 +30,6 @@ import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -47,7 +45,6 @@ import java.util.concurrent.Executors;
  *
  * Features:
  * 1. Real-time performance visualisation
- * 2. Chunking for large files (100MB, 500MB, 1GB)
  * 3. Material Design 3 UI (for minimal performance impact and ease of use)
  * 4. Progress tracking with time estimation
  * 5. Device capability detection
@@ -73,7 +70,6 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
     private EncryptionManager encryptionManager;
     private FileSelectionManager fileSelectionManager;
     private EncryptionBenchmark encryptionBenchmark;
-    private ExternalFileManager externalFileManager;
     private ExecutorService executorService;
 
     // State
@@ -90,7 +86,7 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
         setupEncryptionManager();
         initialiseViews();
         setupButtonListeners();
-        setupFileSizeSlider();
+        //setupFileSizeSlider();
 
         executorService = Executors.newFixedThreadPool(MAX_THREADS);
     }
@@ -100,8 +96,7 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
     private void setupCoreComponents() {
         encryptionManager = new EncryptionManager(this);
 
-        externalFileManager = new ExternalFileManager(this);
-        fileSelectionManager = new FileSelectionManager(this, externalFileManager);
+        fileSelectionManager = new FileSelectionManager(this);
         fileSelectionManager.setCallback(this);
 
         encryptionBenchmark = new EncryptionBenchmark(this);
@@ -144,12 +139,12 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
         chipHardwareStatus = findViewById(R.id.chipHardwareStatus);
 
         // File Size Components
-        fileSizeSlider = findViewById(R.id.fileSizeSlider);
-        fileSizeText = findViewById(R.id.fileSizeText);
+       // fileSizeSlider = findViewById(R.id.fileSizeSlider);
+        //fileSizeText = findViewById(R.id.fileSizeText);
 
         // File Type Dropdown
-        fileTypeDropdown = findViewById(R.id.fileTypeDropdown);
-        fileTypeDescription = findViewById(R.id.fileTypeDescription);
+        //fileTypeDropdown = findViewById(R.id.fileTypeDropdown);
+       // fileTypeDescription = findViewById(R.id.fileTypeDescription);
 
     }
 
@@ -245,20 +240,20 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
     /**
      * Setup file size slider with predefined sizes
      */
-    private void setupFileSizeSlider() {
-        fileSizeSlider.addOnChangeListener((slider, value, fromUser) -> {
-            int sizeMB = (int) value;
-            String sizeText;
-
-            if (sizeMB >= 1000) {
-                sizeText = String.format(Locale.US, "%.1f GB", sizeMB / 1000.0f);
-            } else {
-                sizeText = String.format(Locale.US, "%d MB", sizeMB);
-            }
-            fileSizeText.setText(sizeText);
-        });
-        fileSizeSlider.setValue(10);
-    }
+//    private void setupFileSizeSlider() {
+//        fileSizeSlider.addOnChangeListener((slider, value, fromUser) -> {
+//            int sizeMB = (int) value;
+//            String sizeText;
+//
+//            if (sizeMB >= 1000) {
+//                sizeText = String.format(Locale.US, "%.1f GB", sizeMB / 1000.0f);
+//            } else {
+//                sizeText = String.format(Locale.US, "%d MB", sizeMB);
+//            }
+//            fileSizeText.setText(sizeText);
+//        });
+//        fileSizeSlider.setValue(10);
+//    }
 
 
     // === FILE SELECTION ===
@@ -266,34 +261,34 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
     /**
      * Setup file type dropdown with supported file types and descriptions
      */
-    private void setupFileTypeDropdown() {
-        // Define supported file types with descriptions
-        Map<String, String> fileTypes = new LinkedHashMap<String, String>() {{
-            put("TXT", "Text file with readable content");
-            put("PDF", "PDF document with structured content");
-            put("JPG", "JPEG image file (simulated)");
-            put("PNG", "PNG image file (simulated)");
-            put("MP3", "Audio file (simulated)");
-            put("MP4", "Video file (simulated)");
-            put("DOCX", "Word document (simulated)");
-            put("ZIP", "Compressed archive (simulated)");
-        }};
-
-        List<String> fileTypeList = new ArrayList<>(fileTypes.keySet());
-
-        ArrayAdapter<String> fileTypeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, fileTypeList);
-        fileTypeDropdown.setAdapter(fileTypeAdapter);
-
-        // Update description when selection changes
-        fileTypeDropdown.setOnItemClickListener((parent, view, position, id) -> {
-            String selectedType = fileTypeList.get(position);
-            String description = fileTypes.get(selectedType);
-            fileTypeDescription.setText(description);
-        });
-
-        // Set initial description
-        fileTypeDescription.setText(fileTypes.get("TXT"));
-    }
+//    private void setupFileTypeDropdown() {
+//        // Define supported file types with descriptions
+//        Map<String, String> fileTypes = new LinkedHashMap<String, String>() {{
+//            put("TXT", "Text file with readable content");
+//            put("PDF", "PDF document with structured content");
+//            put("JPG", "JPEG image file (simulated)");
+//            put("PNG", "PNG image file (simulated)");
+//            put("MP3", "Audio file (simulated)");
+//            put("MP4", "Video file (simulated)");
+//            put("DOCX", "Word document (simulated)");
+//            put("ZIP", "Compressed archive (simulated)");
+//        }};
+//
+//        List<String> fileTypeList = new ArrayList<>(fileTypes.keySet());
+//
+//        ArrayAdapter<String> fileTypeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_dropdown_item_1line, fileTypeList);
+//        fileTypeDropdown.setAdapter(fileTypeAdapter);
+//
+//        // Update description when selection changes
+//        fileTypeDropdown.setOnItemClickListener((parent, view, position, id) -> {
+//            String selectedType = fileTypeList.get(position);
+//            String description = fileTypes.get(selectedType);
+//            fileTypeDescription.setText(description);
+//        });
+//
+//        // Set initial description
+//        fileTypeDescription.setText(fileTypes.get("TXT"));
+//    }
 
     /**
      * File Selection Callback
@@ -551,9 +546,9 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
         );
         showResults(message);
         // Also show a toast for immediate feedback
-        Toast.makeText(this,
-                String.format("%s completed: %.1f MB/s", result.getOperation(), throughputMBps),
-                Toast.LENGTH_LONG).show();
+//        Toast.makeText(this,
+//                String.format("%s completed: %.1f MB/s", result.getOperation(), throughputMBps),
+//                Toast.LENGTH_LONG).show();
     }
 
     /**
@@ -612,10 +607,16 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
 
                 algorithm.setProgressCallback(this::updateProgressBar);
 
-
+                File inputFile = selectedFile.tempFile;
                 String outputFileName = "encrypted_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".raziel";
                 File outputFile = getOutputFileInDownloads(outputFileName);
-                EncryptionResult result = encryptionManager.encryptFile(selectedFile.tempFile, algorithm, outputFile);
+
+                EncryptionResult result = encryptionManager.encryptFile(inputFile, algorithm, outputFile);
+
+                if (result.isSuccess() && selectedFile.tempFile != null && selectedFile.tempFile.exists()) {
+                    boolean deleted = selectedFile.tempFile.delete();
+                    Log.d(TAG, "Deleted temp input file: " + deleted + " - " + selectedFile.tempFile.getAbsolutePath());
+                }
 
                 // Debug
                 Log.d("EncryptionDebug", "=== ENCRYPTION RESULT ===");
@@ -625,15 +626,13 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
                 Log.d("EncryptionDebug", "Algorithm: " + result.getAlgorithmName());
                 Log.d("EncryptionDebug", "Operation: " + result.getOperation());
                 Log.d("EncryptionDebug", "Error: " + result.getErrorMessage());
-                Log.d("EncryptionDebug", "Output file: " + result.getOutputFile());
-                Log.d("EncryptionDebug", "Output file exists: " + (result.getOutputFile() != null && result.getOutputFile().exists()));
-                if (result.getOutputFile() != null) {
+                Log.d("EncryptionDebug", "Output file: " + result.getOutputFile().getAbsolutePath());
+                if (result.getOutputFile() != null && result.getOutputFile().exists()) {
                     Log.d("EncryptionDebug", "Output file exists: " + result.getOutputFile().exists());
                     Log.d("EncryptionDebug", "Output file size: " + result.getOutputFile().length());
                 }
 
                 algorithm.setProgressCallback(null);
-
 
                 mainHandler.post(() -> {
                     if (result.isSuccess()) {
@@ -646,7 +645,7 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
                         //updateStatus("Encryption completed successfully");
 
                         // Log file locations for debugging
-                        Log.d("FileLocations", "Original: " + selectedFile.tempFile.getAbsolutePath());
+                        Log.d("FileLocations", "Original temp file deleted: " + selectedFile.tempFile.getAbsolutePath());
                         Log.d("FileLocations", "Encrypted: " + lastEncryptedFile.getAbsolutePath());
 
                     } else {
@@ -756,18 +755,29 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
         setUiEnabled(false);
         showProgress(true, "Running Comprehensive Benchmark...", true);
 
+        // Track progress
+        encryptionBenchmark.setProgressCallback(new EncryptionBenchmark.BenchmarkProgressCallback() {
+            @Override
+            public void onBenchmarkProgress(int currentStep, int totalSteps, String currentOperation) {
+                int progress = totalSteps > 0 ? (int) ((currentStep * 100) / (double) totalSteps) : 0;
+                updateProgress(currentOperation, progress);
+            }
+        });
+
         executorService.execute(() -> {
             try {
                 List<InterfaceEncryptionAlgorithm> algorithms = encryptionManager.getAvailableAlgorithms();
                 Map<String, EncryptionBenchmark.ComprehensiveBenchmarkResult> results = encryptionBenchmark.runComprehensiveBenchmark(algorithms);
 
                 mainHandler.post(() -> {
+                    encryptionBenchmark.setProgressCallback(null);
                     displayBenchmarkResults(results);
                     setUiEnabled(true);
                     showProgress(false, "", true);
                 });
             } catch (Exception e) {
                 mainHandler.post(() -> {
+                    encryptionBenchmark.setProgressCallback(null);
                     showError("Benchmark Failed", e.getMessage());
                     setUiEnabled(true);
                     showProgress(false, "", true);
@@ -785,19 +795,19 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
 
         String cacheMessage = String.format(Locale.US,
                 "=== CACHE PERFORMANCE ===\n\n" +
-                        "Keyset Cache: %d hits, %d misses (%.1f%%)\n" +
-                        "Cipher Cache: %d hits, %d misses (%.1f%%)\n" +
-                        "Key Derivation: %d hits, %d misses (%.1f%%)\n\n" +
-                        "Performance Impact:\n" +
-                        "• Keyset generation: %dms vs <1ms cached\n" +
-                        "• Cipher creation: %dms vs <1ms cached\n" +
-                        "• Overall speedup: ~%dx faster",
-                stats.keysetHits, stats.keysetMisses, stats.keysetHitRate,
-                stats.cipherHits, stats.cipherMisses, stats.cipherHitRate,
-                stats.keyDerivationHits, stats.keyDerivationMisses, stats.keyDerivationHitRate,
-                stats.avgKeysetGenerationTimeMs,
-                stats.avgCipherCreationTimeMs,
-                Math.max(10, stats.avgKeysetGenerationTimeMs / 10) // Estimated speedup
+                        "Keyset Cache: %d hits, %d misses (%.1f%%)\n", //+
+                       // "Cipher Cache: %d hits, %d misses (%.1f%%)\n" +
+                       // "Key Derivation: %d hits, %d misses (%.1f%%)\n\n" +
+                       // "Performance Impact:\n" +
+                       // "• Keyset generation: %dms vs <1ms cached\n" +
+                        //"• Cipher creation: %dms vs <1ms cached\n" +
+                        //"• Overall speedup: ~%dx faster",
+                stats.keysetHits, stats.keysetMisses, stats.keysetHitRate //,
+               // stats.cipherHits, stats.cipherMisses, stats.cipherHitRate,
+               // stats.keyDerivationHits, stats.keyDerivationMisses, stats.keyDerivationHitRate,
+                //stats.avgKeysetGenerationTimeMs,
+               // stats.avgCipherCreationTimeMs,
+               // Math.max(10, stats.avgKeysetGenerationTimeMs / 10) // Estimated speedup
         );
 
         showResults(cacheMessage);
@@ -836,14 +846,14 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
                         "• Algorithm: %s\n\n" +
                         "Cache Performance:\n" +
                         "• Keyset: %d/%d (%.1f%% hit rate)\n" +
-                        "• Cipher: %d/%d (%.1f%% hit rate)\n" +
-                        "• Estimated cache speedup: ~%dx\n\n" +
+                      //  "• Cipher: %d/%d (%.1f%% hit rate)\n" +
+                       // "• Estimated cache speedup: ~%dx\n\n" +
                         "Device: %s (%d cores)",
                 fileSizeMB, timeSec, throughputMBps,
                 result.getAlgorithmName(),
                 cacheStats.keysetHits, cacheStats.keysetHits + cacheStats.keysetMisses, cacheStats.keysetHitRate,
-                cacheStats.cipherHits, cacheStats.cipherHits + cacheStats.cipherMisses, cacheStats.cipherHitRate,
-                Math.max(10, cacheStats.avgKeysetGenerationTimeMs / 10),
+               // cacheStats.cipherHits, cacheStats.cipherHits + cacheStats.cipherMisses, cacheStats.cipherHitRate,
+               // Math.max(10, cacheStats.avgKeysetGenerationTimeMs / 10),
                 chipDevice.getText(),
                 Runtime.getRuntime().availableProcessors()
         );
@@ -868,6 +878,11 @@ public class MainActivity extends AppCompatActivity implements FileSelectionMana
     @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        // Clean up any remaining temp files
+        if (fileSelectionManager != null) {
+            fileSelectionManager.cleanUpTempFiles();
+        }
 
         if (encryptionManager != null) {
             encryptionManager.cleanup();

@@ -13,6 +13,7 @@ import com.google.crypto.tink.aead.PredefinedAeadParameters;
 import com.google.crypto.tink.streamingaead.AesGcmHkdfStreamingParameters;
 import com.google.crypto.tink.streamingaead.StreamingAeadConfig;
 
+import java.io.File;
 import java.security.GeneralSecurityException;
 
 /**
@@ -82,6 +83,22 @@ public class KeyManager {
                 .build();
 
         return KeysetHandle.generateNew(parameters);
+    }
+
+    // Create keyset with algorithm specific parameters
+    public KeysetHandle createKeysetForAlgorithm(String algorithmName, int segmentSize) throws GeneralSecurityException {
+        if (algorithmName.contains("AES")) {
+            return createAesStreamingKeysetHandle(segmentSize);
+        } else {
+            return createChaChaKeysetHandle();
+        }
+    }
+
+    // Generate unique key ID for file-based key management
+    public String generateFileKeyId(File file) {
+        String baseId = file.getName() + "_" + file.length() + "_" + file.lastModified();
+        // Add some randomness to avoid collisions
+        return baseId + "_" + System.currentTimeMillis();
     }
 
     // Store keyset metadata securely

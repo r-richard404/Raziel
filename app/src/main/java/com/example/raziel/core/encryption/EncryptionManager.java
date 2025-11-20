@@ -4,30 +4,29 @@ import android.content.Context;
 import android.util.Log;
 
 import com.example.raziel.core.caching.CacheManager;
-import com.example.raziel.core.encryption.algorithms.AES_256;
-import com.example.raziel.core.encryption.algorithms.ChaCha20_Poly1305;
+import com.example.raziel.core.encryption.algorithms.AES_256_GCM;
+import com.example.raziel.core.encryption.algorithms.XChaCha20_Poly1305;
 import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorithm;
 import com.example.raziel.core.encryption.models.EncryptionResult;
 import com.example.raziel.core.optimisation.AlgorithmSelector;
 import com.example.raziel.core.performance.PerformanceMetrics;
 import com.example.raziel.core.profiler.DeviceProfiler;
-import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.Parameters;
-import com.google.crypto.tink.StreamingAead;
 import com.google.crypto.tink.aead.PredefinedAeadParameters;
 import com.google.crypto.tink.streamingaead.AesGcmHkdfStreamingParameters;
 
 import java.io.File;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Encryption Manager
  */
 public class EncryptionManager {
-
     private static final String TAG = "EncryptionManager";
 
     private final Context context;
@@ -37,8 +36,8 @@ public class EncryptionManager {
     private final AlgorithmSelector algorithmSelector;
     private final PerformanceMetrics performanceMetrics;
 
-
-    private KeysetHandle lastEncryptionKey = null;
+    // Track keys per file
+    private final Map<String, KeysetHandle> fileKeyMap = new HashMap<>();
 
     /**
      * Constructor initialises encryption manager with device context
@@ -52,7 +51,7 @@ public class EncryptionManager {
 
         // Initialising available algorithms
         // Context is passed for algorithms to adapt to device capabilities
-        List<InterfaceEncryptionAlgorithm> algorithms = Arrays.asList(new AES_256(context), new ChaCha20_Poly1305(context));
+        List<InterfaceEncryptionAlgorithm> algorithms = Arrays.asList(new AES_256_GCM(context), new XChaCha20_Poly1305(context));
 
         this.algorithmSelector = new AlgorithmSelector(deviceProfiler, algorithms);
 
@@ -94,7 +93,6 @@ public class EncryptionManager {
     public void cleanup() {
         Log.d(TAG, "Cleaning up EncryptionManager resources");
         cacheManager.clearAll();
-        lastEncryptionKey = null;
     }
 
 
@@ -115,7 +113,6 @@ public class EncryptionManager {
         }
     }
 
-
     /**
      * Encrypts a file using the specified algorithm
      */
@@ -134,9 +131,17 @@ public class EncryptionManager {
                 return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Input file is empty", inputFile);
             }
 
+            // Generate unique key for this specific file
+            String fileKeyId = keyManager.generateFileKeyId(outputFile);
+            KeysetHandle keysetHandle = keyManager.createKeysetForAlgorithm(algorithm.getAlgorithmName(), algorithm.getOptimalSegmentSize());
+
+            // Store key for later decryption
+            fileKeyMap.put(fileKeyId, keysetHandle);
+            cacheManager.cacheKeyset(fileKeyId, keysetHandle);
+            keyManager.storeKeyset(fileKeyId, keysetHandle);
 
             // Get or create keyset caching
-            KeysetHandle keysetHandle = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
+            //KeysetHandle keysetHandle = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
 
             if (keysetHandle == null) {
                 // Cache miss - create new keyset and record time
@@ -144,6 +149,7 @@ public class EncryptionManager {
                 // Create keyset parameters for encryption
                 Parameters parameters = selectKeyParameters(algorithm);
                 keysetHandle = keyManager.createStreamingKeysetHandle(parameters);
+
                 long generationTime = System.nanoTime() - generationStart;
 
                 cacheManager.cacheKeyset(algorithm.getAlgorithmName(), keysetHandle);
@@ -153,15 +159,7 @@ public class EncryptionManager {
                 Log.d(TAG, "Using cached keyset for " + algorithm.getAlgorithmName());
             }
 
-            // Use cached streaming/chunking
-            if (algorithm.getAlgorithmName().contains("AES")) {
-                StreamingAead streamingAead = cacheManager.getOrCreateStreamingAead(keysetHandle);
-            } else {
-                Aead aead = cacheManager.getOrCreateAead(keysetHandle);
-            }
-
-
-            lastEncryptionKey = keysetHandle;
+            //lastEncryptionKey = keysetHandle;
 
             // Debug keyset
             debugKeysetInfo(keysetHandle, "Encryption using");
@@ -206,37 +204,29 @@ public class EncryptionManager {
             }
 
             // Check if we have a valid keyset
-            if (lastEncryptionKey == null) {
-                // Try to get from cache first
-                lastEncryptionKey = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
-                if (lastEncryptionKey == null) {
+//            if (lastEncryptionKey == null) {
+//                // Try to get from cache first
+//                lastEncryptionKey = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
+//                if (lastEncryptionKey == null) {
+//                    return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT,
+//                            "No encryption key available. Encrypt a file first or check cache.", inputFile);
+//                }
+//                Log.d(TAG, "Retrieved keyset from cache for decryption: " + algorithm.getAlgorithmName());
+//            }
+
+            KeysetHandle keysetHandle = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
+                if (keysetHandle == null) {
                     return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT,
                             "No encryption key available. Encrypt a file first or check cache.", inputFile);
                 }
                 Log.d(TAG, "Retrieved keyset from cache for decryption: " + algorithm.getAlgorithmName());
-            }
-
-            // Validate the keyset
-            try {
-                // Test if we can get a primitive from the keyset
-                if (algorithm.getAlgorithmName().contains("AES")) {
-                    StreamingAead testAead = lastEncryptionKey.getPrimitive(StreamingAead.class);
-                } else {
-                    Aead testAead = lastEncryptionKey.getPrimitive(Aead.class);
-                }
-                Log.d(TAG, "Keyset validation successful for: " + algorithm.getAlgorithmName());
-            } catch (Exception e) {
-                Log.e(TAG, "Keyset validation failed: " + e.getMessage());
-                return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT,
-                        "Invalid encryption key: " + e.getMessage(), inputFile);
-            }
 
             // Debug keyset
             debugKeysetInfo(lastEncryptionKey, "Decryption using");
 
-
             // Perform decryption
-            boolean success = algorithm.decryptFile(inputFile, outputFile, lastEncryptionKey, null);
+            boolean success = algorithm.decryptFile(inputFile, outputFile, keysetHandle, null);
+
             long endTime = System.nanoTime();
             long elapsedNS = (endTime - startTime);
             long elapsedMS =  elapsedNS / 1_000_000;

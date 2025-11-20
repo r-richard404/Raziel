@@ -191,95 +191,95 @@
                 android:text="Select File"/>
 
             <!-- File Size Selection -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                app:cardElevation="2dp"
-                app:cardCornerRadius="12dp">
+<!--            <com.google.android.material.card.MaterialCardView-->
+<!--                android:layout_width="match_parent"-->
+<!--                android:layout_height="wrap_content"-->
+<!--                android:layout_marginBottom="16dp"-->
+<!--                app:cardElevation="2dp"-->
+<!--                app:cardCornerRadius="12dp">-->
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+<!--                <LinearLayout-->
+<!--                    android:layout_width="match_parent"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:orientation="vertical"-->
+<!--                    android:padding="16dp">-->
 
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Test File Size"
-                        android:textAppearance="?attr/textAppearanceTitleMedium"
-                        android:layout_marginBottom="12dp"/>
+<!--                    <TextView-->
+<!--                        android:layout_width="match_parent"-->
+<!--                        android:layout_height="wrap_content"-->
+<!--                        android:text="Test File Size"-->
+<!--                        android:textAppearance="?attr/textAppearanceTitleMedium"-->
+<!--                        android:layout_marginBottom="12dp"/>-->
 
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/fileSizeSlider"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:valueFrom="1"
-                        android:valueTo="10000"
-                        android:value="10"
-                        app:labelBehavior="withinBounds"
-                        android:stepSize="1"/>
+<!--                    <com.google.android.material.slider.Slider-->
+<!--                        android:id="@+id/fileSizeSlider"-->
+<!--                        android:layout_width="match_parent"-->
+<!--                        android:layout_height="wrap_content"-->
+<!--                        android:valueFrom="1"-->
+<!--                        android:valueTo="10000"-->
+<!--                        android:value="10"-->
+<!--                        app:labelBehavior="withinBounds"-->
+<!--                        android:stepSize="1"/>-->
 
-                    <TextView
-                        android:id="@+id/fileSizeText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="10 MB"
-                        android:textAppearance="?attr/textAppearanceLabelLarge"
-                        android:gravity="center"
-                        android:layout_marginTop="8dp"/>
+<!--                    <TextView-->
+<!--                        android:id="@+id/fileSizeText"-->
+<!--                        android:layout_width="match_parent"-->
+<!--                        android:layout_height="wrap_content"-->
+<!--                        android:text="10 MB"-->
+<!--                        android:textAppearance="?attr/textAppearanceLabelLarge"-->
+<!--                        android:gravity="center"-->
+<!--                        android:layout_marginTop="8dp"/>-->
 
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+<!--                </LinearLayout>-->
+<!--            </com.google.android.material.card.MaterialCardView>-->
 
             <!-- File Type Selection -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                app:cardElevation="2dp"
-                app:cardCornerRadius="12dp">
+<!--            <com.google.android.material.card.MaterialCardView-->
+<!--                android:layout_width="match_parent"-->
+<!--                android:layout_height="wrap_content"-->
+<!--                android:layout_marginBottom="16dp"-->
+<!--                app:cardElevation="2dp"-->
+<!--                app:cardCornerRadius="12dp">-->
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+<!--                <LinearLayout-->
+<!--                    android:layout_width="match_parent"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:orientation="vertical"-->
+<!--                    android:padding="16dp">-->
 
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Test File Type"
-                        android:textAppearance="?attr/textAppearanceBodyMedium"
-                        android:layout_marginBottom="12dp"/>
+<!--                    <TextView-->
+<!--                        android:layout_width="match_parent"-->
+<!--                        android:layout_height="wrap_content"-->
+<!--                        android:text="Test File Type"-->
+<!--                        android:textAppearance="?attr/textAppearanceBodyMedium"-->
+<!--                        android:layout_marginBottom="12dp"/>-->
 
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-                        android:hint="Select File Type">
+<!--                    <com.google.android.material.textfield.TextInputLayout-->
+<!--                        android:layout_width="match_parent"-->
+<!--                        android:layout_height="wrap_content"-->
+<!--                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"-->
+<!--                        android:hint="Select File Type">-->
 
-                        <AutoCompleteTextView
-                            android:id="@+id/fileTypeDropdown"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="none"
-                            android:text="TXT"/>
-                    </com.google.android.material.textfield.TextInputLayout>
+<!--                        <AutoCompleteTextView-->
+<!--                            android:id="@+id/fileTypeDropdown"-->
+<!--                            android:layout_width="match_parent"-->
+<!--                            android:layout_height="wrap_content"-->
+<!--                            android:inputType="none"-->
+<!--                            android:text="TXT"/>-->
+<!--                    </com.google.android.material.textfield.TextInputLayout>-->
 
-                    <!-- File Type Description -->
-                    <TextView
-                        android:id="@+id/fileTypeDescription"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Text file with readable content"
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:layout_marginTop="8dp"/>
+<!--                    &lt;!&ndash; File Type Description &ndash;&gt;-->
+<!--                    <TextView-->
+<!--                        android:id="@+id/fileTypeDescription"-->
+<!--                        android:layout_width="match_parent"-->
+<!--                        android:layout_height="wrap_content"-->
+<!--                        android:text="Text file with readable content"-->
+<!--                        android:textAppearance="?attr/textAppearanceBodySmall"-->
+<!--                        android:textColor="?attr/colorOnSurfaceVariant"-->
+<!--                        android:layout_marginTop="8dp"/>-->
 
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+<!--                </LinearLayout>-->
+<!--            </com.google.android.material.card.MaterialCardView>-->
 
             <!-- Action Buttons -->
             <LinearLayout

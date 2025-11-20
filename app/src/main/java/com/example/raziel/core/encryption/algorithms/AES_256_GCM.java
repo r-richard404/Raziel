@@ -8,20 +8,13 @@ import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.StreamingAead;
 
 import java.io.*;
-import java.nio.channels.Channels;
-import java.nio.channels.ReadableByteChannel;
-import java.nio.channels.WritableByteChannel;
 import java.security.GeneralSecurityException;
-
-import javax.crypto.*;
-
-import java.nio.ByteBuffer;
 
 
 /**
  * Tink AES-256-GCM with hardware accelerated
 */
-public class AES_256 implements InterfaceEncryptionAlgorithm {
+public class AES_256_GCM implements InterfaceEncryptionAlgorithm {
     private static final String TAG = "AES256-GCM";
     private final DeviceProfiler deviceProfiler;
     private final int segmentSize;
@@ -32,7 +25,7 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
     private long lastUpdateTime = 0;
     private static final long MIN_UPDATE_INTERVAL_MS = 50; // around 20 FPS
 
-    public AES_256(Context context) {
+    public AES_256_GCM(Context context) {
         this.deviceProfiler = new DeviceProfiler(context);
         this.segmentSize = deviceProfiler.getOptimalSegmentSize().bytes();
         this.bufferSize = deviceProfiler.getOptimalBufferSize();
@@ -75,47 +68,34 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
     @Override
     public boolean encryptFile(File inputFile, File outputFile, KeysetHandle keysetHandle, byte[] associatedData) {
         long startTime = System.nanoTime();
-        long bytesProcessed = 0;
-        long totalBytes = inputFile.length();
 
-        ReadableByteChannel source = null;
-        WritableByteChannel dest = null;
+        FileInputStream fis = null;
         OutputStream encryptingStream = null;
 
         try {
             // Get StreamingAead primitive from keyset
             StreamingAead streamingAead = keysetHandle.getPrimitive(StreamingAead.class);
 
-            // Setup input stream with buffering
-            FileInputStream fis = new FileInputStream(inputFile);
-            BufferedInputStream bis = new BufferedInputStream(fis, bufferSize);
-            source = Channels.newChannel(bis);
-
-            // Setup output stream with buffering
-            FileOutputStream fos = new FileOutputStream(outputFile);
-            BufferedOutputStream bos = new BufferedOutputStream(fos, bufferSize);
-            // Use empty byte array instead of null for associatedData because Tink can't handle null
+            // Use empty byte array if null for associatedData because Tink can't handle null
             byte[] actualAssociatedData = associatedData != null ? associatedData : new byte[0];
 
-            encryptingStream = streamingAead.newEncryptingStream(bos, associatedData);
-            dest = Channels.newChannel(encryptingStream);
+            fis = new FileInputStream(inputFile);
+            FileOutputStream fos = new FileOutputStream(outputFile);
+            encryptingStream = streamingAead.newEncryptingStream(fos, actualAssociatedData);
 
-            // Use direct buffer for better performance on supported devices
-            boolean useDirectBuffer = deviceProfiler.shouldUseDirectBuffers();
-            ByteBuffer byteBuffer = useDirectBuffer ? ByteBuffer.allocateDirect(bufferSize) : ByteBuffer.allocate(bufferSize);
+            // Buffered copy, Tink handles the streaming
+            byte[] buffer = new byte[bufferSize];
+            int bytesRead;
+            long totalBytes = inputFile.length();
+            long bytesProcessed = 0;
 
-            long currentTime;
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                encryptingStream.write(buffer, 0, bytesRead);
+                bytesProcessed += bytesRead;
 
-            while (source.read(byteBuffer) != -1) {
-                 byteBuffer.flip();
-                 long chunkBytes = byteBuffer.remaining();
-                 bytesProcessed += chunkBytes;
-                 dest.write(byteBuffer);
-                 byteBuffer.clear();
-
-                 // Throttled progress updates for smooth UI
-                 currentTime = System.currentTimeMillis();
-                 if (progressCallback != null && currentTime - lastUpdateTime >= MIN_UPDATE_INTERVAL_MS) {
+                // Progress updates
+                long currentTime = System.currentTimeMillis();
+                if (progressCallback != null && currentTime - lastUpdateTime >= MIN_UPDATE_INTERVAL_MS) {
                      progressCallback.onProgressUpdate(bytesProcessed, totalBytes);
                      lastUpdateTime = currentTime;
                  }
@@ -126,9 +106,7 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
                 progressCallback.onProgressUpdate(totalBytes, totalBytes);
             }
 
-            // Close streams to finalise encryption
-            dest.close();
-            source.close();
+
 
             // Performance logging
             long endTime = System.nanoTime();
@@ -149,9 +127,8 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
             return false;
 
         } finally {
-            closeQuietly(dest);
-            closeQuietly(source);
             closeQuietly(encryptingStream);
+            closeQuietly(fis);
         }
     }
 
@@ -160,12 +137,6 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
     public boolean decryptFile(File inputFile, File outputFile, KeysetHandle keysetHandle, byte[] associatedData) {
         // Performance metrics for optimisation validation
         long startTime = System.nanoTime();
-        long bytesProcessed = 0;
-        long totalBytes = inputFile.length();
-
-//        ReadableByteChannel source = null;
-//        WritableByteChannel dest = null;
-//        InputStream decryptingStream = null;
         InputStream decryptingStream = null;
         OutputStream outputStream = null;
 
@@ -179,38 +150,33 @@ public class AES_256 implements InterfaceEncryptionAlgorithm {
             // Get StreamingAead primitive from keyset
             StreamingAead streamingAead = keysetHandle.getPrimitive(StreamingAead.class);
 
-            // Setup input stream with buffering
-            FileInputStream fis = new FileInputStream(inputFile);
-            BufferedInputStream bis = new BufferedInputStream(fis, bufferSize);
-
-            Log.d(TAG, "Creating decrypting stream for file: " + inputFile.length() + " bytes");
-
-            // Use empty byte array instead of null for associatedData because Tink can't handle null
+            // Use empty byte array if null for associatedData because Tink can't handle null
             byte[] actualAssociatedData = associatedData != null ? associatedData : new byte[0];
-            decryptingStream = streamingAead.newDecryptingStream(bis, actualAssociatedData);
 
-            // Setup output stream with buffering
+            // Tink streaming decryption
+            FileInputStream fis = new FileInputStream(inputFile);
+            decryptingStream = streamingAead.newDecryptingStream(fis, actualAssociatedData);
+
             outputStream = new FileOutputStream(outputFile);
-            BufferedOutputStream bos = new BufferedOutputStream(outputStream, bufferSize);
 
-            // Use simple byte array instead of ByteBuffer to avoid potential issues
+            // Buffered copy
             byte[] buffer = new byte[bufferSize];
             int bytesRead;
-            long currentTime;
+            long totalBytes = inputFile.length();
+            long bytesProcessed = 0;
+            long lastUpdateTime = 0;
 
             while ((bytesRead = decryptingStream.read(buffer)) != -1) {
-                bos.write(buffer, 0, bytesRead);
+                outputStream.write(buffer, 0, bytesRead);
                 bytesProcessed += bytesRead;
 
                 // Throttled progress updates
-                currentTime = System.currentTimeMillis();
+                long currentTime = System.currentTimeMillis();
                 if (progressCallback != null && currentTime - lastUpdateTime >= MIN_UPDATE_INTERVAL_MS) {
                     progressCallback.onProgressUpdate(bytesProcessed, totalBytes);
                     lastUpdateTime = currentTime;
                 }
             }
-
-            bos.flush();
 
             // Final update
             if (progressCallback != null) {

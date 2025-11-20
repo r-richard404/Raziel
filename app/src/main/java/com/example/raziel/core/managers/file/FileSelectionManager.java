@@ -18,8 +18,8 @@ import java.io.OutputStream;
 public class FileSelectionManager {
     private static final String TAG = "FileSelectionManager";
     private final Context context;
-    private final ExternalFileManager fileManager;
     private ActivityResultLauncher<String> filePickerLauncher;
+    private FileSelectionCallback callback;
 
     public static class FileInfo {
         public final Uri uri;
@@ -42,15 +42,12 @@ public class FileSelectionManager {
         void onFileSelectionError(String error);
     }
 
-    private FileSelectionCallback callback;
-
     public void setCallback(FileSelectionCallback callback) {
         this.callback = callback;
     }
 
-    public FileSelectionManager(AppCompatActivity activity, ExternalFileManager fileManager) {
+    public FileSelectionManager(AppCompatActivity activity) {
         this.context = activity;
-        this.fileManager = fileManager;
         setupFilePicker(activity);
     }
 
@@ -91,6 +88,7 @@ public class FileSelectionManager {
                 os.write(buffer, 0, bytesRead);
             }
         }
+
         return new FileInfo(uri, displayName, size, mimeType, tempFile);
     }
 
@@ -112,13 +110,20 @@ public class FileSelectionManager {
 
     private void setupFilePicker(AppCompatActivity activity) {
         filePickerLauncher = activity.registerForActivityResult(
-                new ActivityResultContracts.GetContent(), uri -> {
+                new ActivityResultContracts.GetContent(),
+                uri -> {
                     if (uri != null) {
-                        processSelectedFile(uri);
-                    } else {
-                        if (callback != null) {
-                            callback.onFileSelectionError("No file selected");
+                        FileInfo fileInfo;
+                        try {
+                            fileInfo = createFileInfoFromUri(uri);
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
                         }
+                        if (callback != null) {
+                            callback.onFileSelected(fileInfo);
+                        }
+                    } else if (callback != null) {
+                        callback.onFileSelectionError("No file selected");
                     }
                 }
         );
