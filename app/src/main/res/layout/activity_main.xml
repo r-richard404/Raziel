@@ -308,10 +308,29 @@
                     app:icon="@drawable/ic_launcher_foreground"
                     style="@style/Widget.Material3.Button.OutlinedButton"/>
 
+            </LinearLayout>
 
+            <!-- Toggle Caching Button -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="16dp">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnToggleCache"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="Enable Cache"
+                    app:icon="@drawable/ic_launcher_foreground"
+                    android:layout_marginEnd="8dp"
+                    style="@style/Widget.Material3.Button.TonalButton"/>
 
             </LinearLayout>
 
+            <!-- Show Cache Stats | Clear Cache Buttons -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -340,9 +359,7 @@
 
             </LinearLayout>
 
-
-
-
+            <!-- Benchmark Button -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBenchmark"
                 android:layout_width="match_parent"

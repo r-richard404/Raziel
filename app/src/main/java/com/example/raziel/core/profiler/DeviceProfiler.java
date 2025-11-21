@@ -4,11 +4,6 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
 import android.util.Log;
-import android.util.LruCache;
-
-import com.google.crypto.tink.KeysetHandle;
-import com.google.crypto.tink.Parameters;
-import com.google.crypto.tink.proto.Keyset;
 
 // Detects device capabilities for adaptive optimisation
 public class DeviceProfiler {

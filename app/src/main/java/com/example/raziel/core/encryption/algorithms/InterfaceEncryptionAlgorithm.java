@@ -21,9 +21,6 @@ public interface InterfaceEncryptionAlgorithm {
     // Decrypt file using Tink keyset
     boolean decryptFile(File inputFile, File outputFile, KeysetHandle keysetHandle, byte[] associatedData);
 
-    // Get optimal segment size for this algorithm
-    int getOptimalSegmentSize();
-
     // Add progress callback support
     interface ProgressCallback {
         void onProgressUpdate(long bytesProcessed, long totalBytes);

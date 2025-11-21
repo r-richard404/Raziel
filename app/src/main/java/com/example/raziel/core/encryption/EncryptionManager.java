@@ -12,16 +12,14 @@ import com.example.raziel.core.optimisation.AlgorithmSelector;
 import com.example.raziel.core.performance.PerformanceMetrics;
 import com.example.raziel.core.profiler.DeviceProfiler;
 import com.google.crypto.tink.KeysetHandle;
-import com.google.crypto.tink.Parameters;
-import com.google.crypto.tink.aead.PredefinedAeadParameters;
-import com.google.crypto.tink.streamingaead.AesGcmHkdfStreamingParameters;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Encryption Manager
@@ -36,13 +34,13 @@ public class EncryptionManager {
     private final AlgorithmSelector algorithmSelector;
     private final PerformanceMetrics performanceMetrics;
 
-    // Track keys per file
-    private final Map<String, KeysetHandle> fileKeyMap = new HashMap<>();
+    // Button method
+    private boolean cachingEnabled = false; // Default OFF
 
     /**
      * Constructor initialises encryption manager with device context
      */
-    public EncryptionManager(Context context) {
+    public EncryptionManager(Context context) throws GeneralSecurityException, IOException {
         this.context = context;
         this.keyManager = new KeyManager(context);
         this.deviceProfiler = new DeviceProfiler(context);
@@ -90,32 +88,36 @@ public class EncryptionManager {
         return cacheManager.getStats();
     }
 
+    // Used to update UI in MainActivity for selective dropdown algorithms
+    public String getAlgorithmUsedForFile(File encryptedFile) {
+        if (encryptedFile == null || !encryptedFile.exists()) {
+            return null;
+        }
+        try {
+            EncryptionMetadata metadata = EncryptionMetadata.readHeader(encryptedFile);
+            if (metadata != null && metadata.algorithmName != null && !metadata.algorithmName.isEmpty()) {
+                return metadata.algorithmName;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to read algorithm metadata from header for file: " + encryptedFile, e);
+        }
+        return null;
+    }
+
+    // Activated by button
+    public void setCachingEnabled(boolean enabled) {
+        this.cachingEnabled = enabled;
+    }
+
+    public boolean isCachingEnabled() {
+        return cachingEnabled;
+    }
+
     public void cleanup() {
         Log.d(TAG, "Cleaning up EncryptionManager resources");
         cacheManager.clearAll();
     }
 
-
-    // Select appropriate Tink key parameter based on algorithm and device capabilities
-    private Parameters selectKeyParameters(InterfaceEncryptionAlgorithm algorithm) throws GeneralSecurityException {
-        int segmentSize = algorithm.getOptimalSegmentSize();
-
-        if (algorithm.getAlgorithmName().contains("AES")) {
-            return AesGcmHkdfStreamingParameters.builder()
-                    .setKeySizeBytes(32) // 256 bits
-                    .setDerivedAesGcmKeySizeBytes(32) // 256 bits
-                    .setHkdfHashType(AesGcmHkdfStreamingParameters.HashType.SHA256)
-                    .setCiphertextSegmentSizeBytes(segmentSize)
-                    .build();
-        } else {
-            // ChaCha20 uses Aead, not streaming
-            return PredefinedAeadParameters.XCHACHA20_POLY1305;
-        }
-    }
-
-    /**
-     * Encrypts a file using the specified algorithm
-     */
     public EncryptionResult encryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, File outputFile) {
         long startTime = System.nanoTime();
         long keysetStartTime = System.nanoTime();
@@ -131,41 +133,110 @@ public class EncryptionManager {
                 return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Input file is empty", inputFile);
             }
 
-            // Generate unique key for this specific file
-            String fileKeyId = keyManager.generateFileKeyId(outputFile);
-            KeysetHandle keysetHandle = keyManager.createKeysetForAlgorithm(algorithm.getAlgorithmName(), algorithm.getOptimalSegmentSize());
+            // Generate unique key ID for this specific file
+            String fileKeyId = keyManager.generateFileKeyId();
 
-            // Store key for later decryption
-            fileKeyMap.put(fileKeyId, keysetHandle);
-            cacheManager.cacheKeyset(fileKeyId, keysetHandle);
-            keyManager.storeKeyset(fileKeyId, keysetHandle);
+            // Get segment size based on device capabilities
+            int segmentSize = deviceProfiler.getOptimalSegmentSize().bytes;
 
-            // Get or create keyset caching
-            //KeysetHandle keysetHandle = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
+            // Create a keyset for the chosen algorithm
+            KeysetHandle keysetHandle;
+            EncryptionMethod method;
+            String algorithmName = algorithm.getAlgorithmName();
 
-            if (keysetHandle == null) {
-                // Cache miss - create new keyset and record time
-                long generationStart = System.nanoTime();
-                // Create keyset parameters for encryption
-                Parameters parameters = selectKeyParameters(algorithm);
-                keysetHandle = keyManager.createStreamingKeysetHandle(parameters);
+            // Measure before generating keyset
+            long keyGenerationStart = System.nanoTime();
 
-                long generationTime = System.nanoTime() - generationStart;
+            if ("AES-256-GCM".equals(algorithmName)) {
+                // Use streaming AEAD key for AES-GCM-HKDF
+                keysetHandle = keyManager.createAes256GcmStreamingKeyset(segmentSize);
+                method = EncryptionMethod.CHUNKED_STREAMING;
 
-                cacheManager.cacheKeyset(algorithm.getAlgorithmName(), keysetHandle);
-                cacheManager.recordKeysetGenerationTime(generationTime);
-                Log.d(TAG, "Created and cached new keyset for " + algorithm.getAlgorithmName() + " in " + generationTime/1_000_000 + "ms");
+            } else if ("XChaCha20-Poly1305".equals(algorithmName)) {
+                // Use single-shot AEAD
+                keysetHandle = keyManager.createXChaCha20Poly1305Keyset();
+                method = EncryptionMethod.SINGLE_SHOT;
+
             } else {
-                Log.d(TAG, "Using cached keyset for " + algorithm.getAlgorithmName());
+                return EncryptionResult.failure(
+                        EncryptionResult.Operation.ENCRYPT,
+                        "Unsupported algorithm: " + algorithmName,
+                        inputFile);
             }
 
-            //lastEncryptionKey = keysetHandle;
+            // Measure after generating keyset
+            long keyGenerationEnd = System.nanoTime();
+            cacheManager.recordKeysetGenerationTime(keyGenerationEnd - keyGenerationStart);
+
+            if (cachingEnabled) {
+                // Cache key in memory for fast reuse
+                cacheManager.cacheKeyset(fileKeyId, keysetHandle);
+            }
+
+            // Persist keyset securely
+            keyManager.storeKeyset(fileKeyId, keysetHandle);
 
             // Debug keyset
             debugKeysetInfo(keysetHandle, "Encryption using");
 
-            // Perform encryption
-            boolean success = algorithm.encryptFile(inputFile, outputFile, keysetHandle, null);
+            // 6. Encrypt into a TEMP cipher-only file (no Raziel header yet)
+            File cipherTemp = File.createTempFile("cipher_", ".tmp", context.getCacheDir());
+            boolean success = algorithm.encryptFile(inputFile, cipherTemp, keysetHandle, new byte[0]);
+
+            if (!success) {
+                if (cipherTemp.exists()) cipherTemp.delete();
+                return EncryptionResult.failure(
+                        EncryptionResult.Operation.ENCRYPT,
+                        "Encryption process failed",
+                        inputFile
+                );
+            }
+
+            debugKeysetInfo(keysetHandle, "Encryption using");
+
+            // 7. Build final .raziel file: [Raziel header][ciphertext]
+            if (outputFile.exists()) {
+                // start clean
+                //noinspection ResultOfMethodCallIgnored
+                outputFile.delete();
+            }
+
+            boolean headerOk = EncryptionMetadata.writeHeader(
+                    outputFile,
+                    method,
+                    inputFile.length(),
+                    segmentSize,
+                    fileKeyId,
+                    algorithmName
+            );
+
+            if (!headerOk) {
+                if (cipherTemp.exists()) cipherTemp.delete();
+                return EncryptionResult.failure(
+                        EncryptionResult.Operation.ENCRYPT,
+                        "Failed to write metadata header",
+                        inputFile
+                );
+            }
+
+            // Append ciphertext after header
+            try (FileOutputStream fos = new FileOutputStream(outputFile, true);
+                 FileInputStream cis = new FileInputStream(cipherTemp)) {
+
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = cis.read(buffer)) != -1) {
+                    fos.write(buffer, 0, read);
+                }
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+
+            // Clean up temp cipher file
+            if (cipherTemp.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                cipherTemp.delete();
+            }
 
             long endTime = System.nanoTime();
             long elapsedNS = (endTime - startTime); // Used for performance metric
@@ -179,73 +250,156 @@ public class EncryptionManager {
                     success
             );
 
-            if (success) {
-                return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.ENCRYPT, elapsedMS, inputFile.length());
-            } else {
-                return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Encryption process failed", inputFile);
-            }
+            return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.ENCRYPT, elapsedMS, inputFile.length());
+
         } catch (GeneralSecurityException e) {
             Log.e(TAG, "Encryption Failed", e);
             return EncryptionResult.failure(EncryptionResult.Operation.ENCRYPT, "Encryption error: " + e.getMessage(), inputFile);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
-
 
     /**
      * Decrypting file using the specified algorithm
      */
-    public EncryptionResult decryptFile(File inputFile, InterfaceEncryptionAlgorithm algorithm, File outputFile) {
+    public EncryptionResult decryptFile(File encryptedFile, InterfaceEncryptionAlgorithm fallbackAlgorithm, File outputFile) {
         long startTime = System.nanoTime();
 
         try {
             // Input validation
-            if (!inputFile.exists()) {
-                return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Input file does not exist", inputFile);
+            if (!encryptedFile.exists()) {
+                return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Input file does not exist", encryptedFile);
             }
 
-            // Check if we have a valid keyset
-//            if (lastEncryptionKey == null) {
-//                // Try to get from cache first
-//                lastEncryptionKey = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
-//                if (lastEncryptionKey == null) {
-//                    return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT,
-//                            "No encryption key available. Encrypt a file first or check cache.", inputFile);
-//                }
-//                Log.d(TAG, "Retrieved keyset from cache for decryption: " + algorithm.getAlgorithmName());
-//            }
 
-            KeysetHandle keysetHandle = cacheManager.getCachedKeyset(algorithm.getAlgorithmName());
+            // 1: Read metadata from inside encrypted file
+            EncryptionMetadata metadata = EncryptionMetadata.readHeader(encryptedFile);
+            if (metadata == null) {
+                return EncryptionResult.failure(
+                        EncryptionResult.Operation.DECRYPT,
+                        "Invalid Raziel encrypted file (metadata header missing or corrupt)",
+                        encryptedFile
+                );
+            }
+
+            String fileKeyId = metadata.keyID;
+            String algorithmName = metadata.algorithmName;
+
+            if (fileKeyId == null || fileKeyId.isEmpty()) {
+                return EncryptionResult.failure(
+                        EncryptionResult.Operation.DECRYPT,
+                        "Encrypted file is missing key ID in metadata",
+                        encryptedFile
+                );
+            }
+
+            if (algorithmName == null || algorithmName.isEmpty()) {
+                return EncryptionResult.failure(
+                        EncryptionResult.Operation.DECRYPT,
+                        "Encrypted file is missing algorithm name in metadata",
+                        encryptedFile
+                );
+            }
+
+            // 2: Get keyset from cache or secure storage
+            KeysetHandle keysetHandle = null;
+            if (cachingEnabled) {
+                keysetHandle = cacheManager.getCachedKeyset(fileKeyId);
+            }
+
+            if (keysetHandle == null) {
+                keysetHandle = keyManager.loadKeyset(fileKeyId);
                 if (keysetHandle == null) {
-                    return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT,
-                            "No encryption key available. Encrypt a file first or check cache.", inputFile);
+                    return EncryptionResult.failure(
+                            EncryptionResult.Operation.DECRYPT,
+                            "No encryption key available for this file",
+                            encryptedFile
+                    );
                 }
-                Log.d(TAG, "Retrieved keyset from cache for decryption: " + algorithm.getAlgorithmName());
+                // Cache for subsequent operations
+                if (cachingEnabled) {
+                    cacheManager.cacheKeyset(fileKeyId, keysetHandle);
+                }
+
+            }
+
+            // 3: Choose algorithm implementation based on stored algorithmName
+            InterfaceEncryptionAlgorithm algorithm;
+
+            if ("AES-256-GCM".equals(algorithmName)) {
+                algorithm = new AES_256_GCM(context); // or however you construct it
+            } else if ("XChaCha20-Poly1305".equals(algorithmName)) {
+                algorithm = new XChaCha20_Poly1305(context);
+            } else {
+                // Fallback – try the one provided by UI if compatible
+                if (fallbackAlgorithm != null) {
+                    algorithm = fallbackAlgorithm;
+                } else {
+                    return EncryptionResult.failure(
+                            EncryptionResult.Operation.DECRYPT,
+                            "Unsupported algorithm recorded for this file: " + algorithmName,
+                            encryptedFile
+                    );
+                }
+            }
+
+            // 4. Strip Raziel header into a temp cipher-only file
+            File cipherTemp = File.createTempFile("cipher_", ".tmp", context.getCacheDir());
+            try (FileInputStream fis = new FileInputStream(encryptedFile);
+                 FileOutputStream cos = new FileOutputStream(cipherTemp)) {
+
+                long toSkip = EncryptionMetadata.HEADER_SIZE;
+                long skipped = 0;
+                while (skipped < toSkip) {
+                    long n = fis.skip(toSkip - skipped);
+                    if (n <= 0) {
+                        throw new IOException("Unable to skip metadata header");
+                    }
+                    skipped += n;
+                }
+
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = fis.read(buffer)) != -1) {
+                    cos.write(buffer, 0, read);
+                }
+            }
+
+            // 5. Decrypt using the algorithm on cipher-only temp file
+            boolean success = algorithm.decryptFile(cipherTemp, outputFile, keysetHandle, new byte[0]);
+
+            // Clean up temp cipher file
+            if (cipherTemp.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                cipherTemp.delete();
+            }
 
             // Debug keyset
-            debugKeysetInfo(lastEncryptionKey, "Decryption using");
-
-            // Perform decryption
-            boolean success = algorithm.decryptFile(inputFile, outputFile, keysetHandle, null);
+            debugKeysetInfo(keysetHandle, "Decryption using");
 
             long endTime = System.nanoTime();
             long elapsedNS = (endTime - startTime);
             long elapsedMS =  elapsedNS / 1_000_000;
 
+            if (!success) {
+                if (outputFile.exists()) {
+                    outputFile.delete();
+                }
+                return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Decryption process failed - possibly wrong key or corrupted file", encryptedFile);
+            }
+
             // Performance Metrics
             performanceMetrics.recordOperation(
                     algorithm.getAlgorithmName(),
-                    inputFile.length(),
+                    encryptedFile.length(),
                     elapsedNS,
                     success
             );
 
-            if (success) {
-                return EncryptionResult.success(inputFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.DECRYPT, elapsedMS, inputFile.length());
-            } else {
-                return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Decryption process failed - possibly wrong key or corrupted file", inputFile);
-            }
+            return EncryptionResult.success(encryptedFile, outputFile, algorithm.getAlgorithmName(), EncryptionResult.Operation.DECRYPT, elapsedMS, encryptedFile.length());
         } catch (Exception e) {
-            return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Decryption error: " + e.getMessage(), inputFile);
+            return EncryptionResult.failure(EncryptionResult.Operation.DECRYPT, "Decryption error: " + e.getMessage(), encryptedFile);
         }
     }
 

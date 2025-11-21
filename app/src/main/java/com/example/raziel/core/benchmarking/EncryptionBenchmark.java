@@ -7,6 +7,8 @@ import com.example.raziel.core.encryption.algorithms.InterfaceEncryptionAlgorith
 import com.google.crypto.tink.KeysetHandle;
 
 import java.io.File;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +36,7 @@ public class EncryptionBenchmark {
     private final Context context;
     private final BenchmarkFileGenerator fileGenerator;
 
-    public EncryptionBenchmark(Context context) {
+    public EncryptionBenchmark(Context context) throws GeneralSecurityException, IOException {
         this.context = context;
         this.fileGenerator = new BenchmarkFileGenerator(context);
     }

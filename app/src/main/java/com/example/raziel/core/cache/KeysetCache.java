@@ -19,23 +19,18 @@ public class KeysetCache {
         };
     }
 
-    /**
-     * Put keyset in cache
-     */
-    public void put(String algorithm, KeysetHandle keyset) {
-        String cacheKey = algorithm + "_keyset";
-        cache.put(cacheKey, keyset);
-        Log.d(TAG, "Cached keyset for: " + algorithm);
+    // Put keyset in cache
+    public void put(String keyID, KeysetHandle keyset) {
+        cache.put(keyID, keyset);
+        Log.d(TAG, keyID + keyID);
     }
 
-    /**
-     * Get keyset from cache
-     */
-    public KeysetHandle get(String algorithm) {
-        String cacheKey = algorithm + "_keyset";
-        KeysetHandle keysetHandle = cache.get(cacheKey);
+
+    // Get keyset from cache
+    public KeysetHandle get(String keyID) {
+        KeysetHandle keysetHandle = cache.get(keyID);
         if (keysetHandle != null) {
-            Log.d(TAG, "Cache hit for keyset: " + algorithm);
+            Log.d(TAG, "Cache hit for keyset: " + keyID);
         }
         return keysetHandle;
     }

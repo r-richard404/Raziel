@@ -113,15 +113,16 @@ public class FileSelectionManager {
                 new ActivityResultContracts.GetContent(),
                 uri -> {
                     if (uri != null) {
-                        FileInfo fileInfo;
-                        try {
-                            fileInfo = createFileInfoFromUri(uri);
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                        if (callback != null) {
-                            callback.onFileSelected(fileInfo);
-                        }
+                        // Run heavy file copy on background thread
+                        new Thread(() -> {
+                            try {
+                                FileInfo info = createFileInfoFromUri(uri);
+                                if (callback != null) callback.onFileSelected(info);
+                            } catch (Exception e) {
+                                if (callback != null)
+                                    callback.onFileSelectionError("Failed to load file: " + e.getMessage());
+                            }
+                        }).start();
                     } else if (callback != null) {
                         callback.onFileSelectionError("No file selected");
                     }

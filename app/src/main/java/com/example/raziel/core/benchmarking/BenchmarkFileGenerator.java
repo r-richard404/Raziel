@@ -21,7 +21,7 @@ public class BenchmarkFileGenerator {
     private final Context context;
     private final KeyManager keyManager;
 
-    public BenchmarkFileGenerator(Context context) {
+    public BenchmarkFileGenerator(Context context) throws GeneralSecurityException, IOException {
         this.context = context;
         this.keyManager = new KeyManager(context);
     }
@@ -31,10 +31,12 @@ public class BenchmarkFileGenerator {
      * Handle Keyset before generating files
      */
     public KeysetHandle createKeysetForAlgorithm(InterfaceEncryptionAlgorithm algorithm) throws GeneralSecurityException {
+
         if (algorithm.getAlgorithmName().contains("AES")) {
-            return keyManager.createAesStreamingKeysetHandle(64 * 1024);
+
+            return keyManager.createAes256GcmStreamingKeyset(64 * 1024);
         } else {
-            return keyManager.createChaChaKeysetHandle();
+            return keyManager.createXChaCha20Poly1305Keyset();
         }
     }
 

@@ -48,12 +48,6 @@ public class AES_256_GCM implements InterfaceEncryptionAlgorithm {
         this.progressCallback = callback;
     }
 
-
-    @Override
-    public int getOptimalSegmentSize() {
-        return deviceProfiler.getOptimalSegmentSize().bytes;
-    }
-
     // Clean resource closure
     public static void closeQuietly(Closeable closeable) {
         if (closeable != null) {

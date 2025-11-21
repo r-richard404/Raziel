@@ -19,6 +19,9 @@ import java.util.Arrays;
 public class XChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
     private static final String TAG = "XChaCha20-Poly1305";
     private static final long MIN_UPDATE_INTERVAL_MS = 50; // around 20 FPS
+
+    // Max file size allowed in RAM for XChaCha single-shot (e.g. 50 MB)
+    private static final long MAX_IN_MEMORY_BYTES = 50L * 1024L * 1024L;
     private final DeviceProfiler deviceProfiler;
     private ProgressCallback progressCallback;
 
@@ -34,11 +37,6 @@ public class XChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
     @Override
     public String getSecurityStrength() {
         return "Military grade (Software Optimised)";
-    }
-
-    @Override
-    public int getOptimalSegmentSize() {
-        return 0;
     }
 
     @Override
@@ -67,15 +65,27 @@ public class XChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
         FileOutputStream fos = null;
 
         try {
+            if (!inputFile.exists() || inputFile.length() == 0) {
+                Log.e(TAG, "Input file does not exist or is empty");
+                return false;
+            }
+
+            long totalBytes = inputFile.length();
+
+            // Check against huge files to avoid OutOfMemory (OOM) Issues
+            if (totalBytes > MAX_IN_MEMORY_BYTES) {
+                Log.e(TAG, "File too large for XChaCha20-Poly1305 in-memory encryption: "
+                        + (totalBytes / (1024.0 * 1024.0)) + " MB. "
+                        + "Use AES-256-GCM for large files.");
+                return false;
+            }
+
             Aead aead = keysetHandle.getPrimitive(Aead.class);
 
             // Use buffered reading for progress tracking
             fis = new FileInputStream(inputFile);
             fos = new FileOutputStream(outputFile);
 
-            //byte[] buffer = new byte[bufferSize];
-            long totalBytes = inputFile.length();
-            //long processedBytes = 0;
             long lastUpdateTime = 0;
 
             // Limited by Tink's Aead primitive
@@ -131,12 +141,26 @@ public class XChaCha20_Poly1305 implements InterfaceEncryptionAlgorithm {
         FileOutputStream fos = null;
 
         try {
+            if (!inputFile.exists() || inputFile.length() == 0) {
+                Log.e(TAG, "Input file does not exist or is empty");
+                return false;
+            }
+
+            long totalBytes = inputFile.length();
+
+            // Check against huge files to avoid OOM
+            if (totalBytes > MAX_IN_MEMORY_BYTES) {
+                Log.e(TAG, "File too large for XChaCha20-Poly1305 in-memory decryption: "
+                        + (totalBytes / (1024.0 * 1024.0)) + " MB. "
+                        + "Use AES-256-GCM for large files.");
+                return false;
+            }
+
             Aead aead = keysetHandle.getPrimitive(Aead.class);
 
             fis = new FileInputStream(inputFile);
             fos = new FileOutputStream(outputFile);
 
-            long totalBytes = inputFile.length();
             byte[] encryptedData = new byte[(int) totalBytes];
 
             // Read entire encrypted file

@@ -26,19 +26,19 @@ public class CacheManager {
     }
 
     // Keyset caching
-    public void cacheKeyset(String algorithm, KeysetHandle keyset) {
-        keysetCache.put(algorithm, keyset);
+    public void cacheKeyset(String keyID, KeysetHandle keyset) {
+        keysetCache.put(keyID, keyset);
     }
 
-    public KeysetHandle getCachedKeyset(String algorithm) {
+    public KeysetHandle getCachedKeyset(String keyID) {
 
-        KeysetHandle keyset = keysetCache.get(algorithm);
+        KeysetHandle keyset = keysetCache.get(keyID);
         if (keyset != null) {
             keysetHits++;
-            Log.d(TAG, "Keyset cache HIT for: " + algorithm);
+            Log.d(TAG, "Keyset cache HIT for: " + keyID);
         } else {
             keysetMisses++;
-            Log.d(TAG, "Keyset cache MISS for: " + algorithm);
+            Log.d(TAG, "Keyset cache MISS for: " + keyID);
         }
         return keyset;
     }
@@ -49,28 +49,32 @@ public class CacheManager {
         totalKeysetGenerationTime += timeNs;
     }
 
-
     public static class CacheStats {
         public final int keysetCacheSize;
 
         // Performance Metrics
         public final int keysetHits;
         public final int keysetMisses;
-
         public final double keysetHitRate;
 
-        public CacheStats(int keysetCacheSize, int keysetHits, int keysetMisses) {
+        public final long totalKeysetGenerationTimeNs;
+        public final double avgKeysetGenerationTimeMs;
+
+        public CacheStats(int keysetCacheSize, int keysetHits, int keysetMisses, long totalKeysetGenerationTimeNs) {
             this.keysetCacheSize = keysetCacheSize;
             this.keysetHits = keysetHits;
             this.keysetMisses = keysetMisses;
 
             this.keysetHitRate = keysetHits + keysetMisses > 0 ? (double) keysetHits / (keysetHits + keysetMisses) * 100 : 0;
+
+            this.totalKeysetGenerationTimeNs = totalKeysetGenerationTimeNs;
+            this.avgKeysetGenerationTimeMs = (keysetHits + keysetMisses) > 0 ? (totalKeysetGenerationTimeNs / 1_000_000.0) / (keysetHits + keysetMisses) : 0.0;
         }
     }
 
     // Get Cache Statistics
     public CacheStats getStats() {
-        return new CacheStats(keysetCache.size(), keysetHits, keysetMisses);
+        return new CacheStats(keysetCache.size(), keysetHits, keysetMisses, totalKeysetGenerationTime);
     }
 
 
@@ -79,11 +83,17 @@ public class CacheManager {
     public String getCachePerformanceSummary() {
         CacheStats stats = getStats();
 
+        double speedup = stats.avgKeysetGenerationTimeMs / 0.05;
+
         return String.format(
                 "=== CACHE PERFORMANCE ===\n\n" +
-                        "Keyset Cache: %d/%d (%.1f%% hit rate)\n" +
-                        "  -> Avg generation: %d ms (vs <1ms cache)\n" +
-                        "  -> Avg creation: %d ms (vs <1ms cache)\n",
+                        "Keyset Cache:\n" +
+                        "Hits: %d\n"+
+                        "Misses: %d\n" +
+                        "Hit Rate: %.1f%%\n" +
+                        "Avg Keyset Generation Time: %.3f ms\n" +
+                        "Cache Load Time: < 0.05 ms\n" +
+                        "Estimated Speedup: ~%.1fx\n",
                 stats.keysetHits, stats.keysetHits + stats.keysetMisses, stats.keysetHitRate
         );
     }
@@ -95,5 +105,4 @@ public class CacheManager {
         keysetHits = keysetMisses = 0;
         Log.d(TAG, "All caches cleared and metrics reset");
     }
-
 }
